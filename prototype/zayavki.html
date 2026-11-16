@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Заявки в снабжение</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Заявки в отдел снабжения</h1>
+  <div class="hctl">
+    <div class="seg" role="group" aria-label="Роль" id="roleSeg">
+      <button id="r-emp" aria-pressed="true">Сотрудник</button>
+      <button id="r-buy" aria-pressed="false">Снабжение</button>
+    </div>
+    <button class="btn ghost sm" id="theme" type="button" aria-label="Сменить тему">Тема</button>
+  </div>
+</header>
+<div class="seg tabs" role="group" aria-label="Раздел">
+  <button id="t-app" aria-pressed="true">Заявки</button>
+  <button id="t-spec" aria-pressed="false">ТЗ</button>
+  <button id="t-comp" aria-pressed="false">Конкуренты</button>
+</div>
+<div id="app">
+
+<section class="panel" id="formPanel">
+  <h2 id="formTitle">Новая заявка</h2>
+  <div class="grid">
+    <div><label for="author">Ваше имя</label><input id="author" placeholder="Иван Петров" maxlength="80" list="authors" autocomplete="name"><datalist id="authors"></datalist></div>
+    <div><label for="dept">Подразделение</label>
+      <select id="dept"><option>Бухгалтерия</option><option>ИТ</option><option>Производство</option><option>Склад</option><option>Администрация</option></select></div>
+    <div><label for="cat">Категория</label>
+      <select id="cat"><option>Канцелярия</option><option>Оборудование</option><option>Расходные материалы</option><option>Услуги</option><option>Другое</option></select></div>
+    <div><label for="prio">Срочность</label>
+      <select id="prio"><option value="0">Обычная</option><option value="1">Срочная</option></select></div>
+    <div><label for="due">Нужно к дате</label><input type="date" id="due"></div>
+    <div><label for="budget">Ориентировочная сумма, ₽</label><input type="number" id="budget" min="0" step="1" inputmode="numeric"></div>
+    <div class="full">
+      <label>Позиции</label>
+      <div id="rows"></div>
+      <button class="btn ghost sm" id="addRow" type="button">Добавить позицию</button>
+    </div>
+    <div class="full"><label for="why">Обоснование</label><textarea id="why" maxlength="1000" placeholder="Зачем это нужно и что будет без закупки"></textarea></div>
+  </div>
+  <p id="err" class="urgent" role="alert" style="margin:10px 0 0"></p>
+  <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+    <button class="btn" id="send" type="button">Отправить заявку</button>
+    <button class="btn ghost" id="cancelEdit" type="button" hidden>Отменить редактирование</button>
+  </div>
+</section>
+
+<div class="stats" id="stats" hidden></div>
+
+<section>
+  <div class="listhead">
+    <h2 id="listTitle">Мои заявки</h2>
+    <div class="tools">
+      <input type="search" id="q" placeholder="Поиск: номер, имя, позиция" aria-label="Поиск по заявкам">
+      <button class="btn ghost sm" id="csv" type="button" hidden>CSV</button>
+    </div>
+  </div>
+  <p class="hint" id="scopeHint"></p>
+  <div class="filters" id="filters"></div>
+  <div id="list"></div>
+</section>
+</div>
+
+<article class="doc" id="spec" hidden><h1>ТЗ: Разработка веб-сервиса подачи внутренних заявок в отдел снабжения</h1>
+<h2>1. Цель проекта</h2>
+<p>Разработать веб-сервис, через который сотрудники организации подают заявки на закупку (канцелярия, оборудование, расходные материалы, услуги), а отдел снабжения принимает их, меняет статусы и оставляет комментарии. Сейчас заявки ходят по почте и мессенджерам и теряются; сайт собирает всё в одном месте и показывает, на каком этапе каждая заявка.</p>
+<p><strong>Критерии успеха:</strong> сотрудник подаёт заявку менее чем за 2 минуты; любая заявка видна в очереди снабжения сразу после отправки; сотрудник в любой момент видит статус и комментарий; ни одна заявка не теряется.</p>
+<p>Прототип интерфейса: <code>zayavki.html</code> (форма заявки, список с фильтрами и поиском, переключатель «Сотрудник / Снабжение», история статусов, редактирование и отмена, статистика и экспорт CSV для снабжения). Прототип хранит данные в браузере и нужен только как образец интерфейса и логики.</p>
+<h2>2. Стек</h2>
+<ul>
+<li>Frontend: React (Vite), React Router</li>
+<li>Backend: Node.js + Express</li>
+<li>База данных: PostgreSQL</li>
+<li>Авторизация: JWT, пароли хранятся в виде хеша (bcrypt)</li>
+<li>Формат обмена: JSON, REST API</li>
+<li>Валидация входных данных на сервере (например, zod или joi), параметризованные SQL-запросы</li>
+</ul>
+<h2>3. Роли пользователей</h2>
+<table>
+<thead><tr><th>Роль</th><th>Что может</th></tr></thead>
+<tbody>
+<tr><td><strong>Сотрудник</strong> (<code>employee</code>)</td><td>Регистрируется и входит; создаёт заявку; видит только свои заявки; редактирует и отменяет заявку, пока она в статусе «Новая»; видит комментарий снабжения и историю статусов</td></tr>
+<tr><td><strong>Снабжение</strong> (<code>buyer</code>)</td><td>Видит все заявки; фильтрует и ищет; меняет статус по разрешённым переходам; пишет комментарий сотруднику; срочные заявки показываются первыми; видит статистику и выгружает CSV</td></tr>
+<tr><td><strong>Администратор</strong> (<code>admin</code>)</td><td>Всё, что умеет снабжение, плюс: управляет пользователями (назначает роли), справочниками подразделений и категорий</td></tr>
+</tbody>
+</table>
+<h2>4. Функции</h2>
+<h3>MVP — обязательно</h3>
+<ol>
+<li>Регистрация и вход (email + пароль), выход</li>
+<li>Создание заявки: категория, срочность, дата «нужно к», ориентировочная сумма, обоснование, одна или несколько позиций (название, количество, единица)</li>
+<li>Список «Мои заявки» для сотрудника с фильтром по статусу</li>
+<li>Просмотр одной заявки целиком</li>
+<li>Очередь снабжения: все заявки, фильтр по статусу, срочные сверху</li>
+<li>Смена статуса заявки снабжением по допустимым переходам (см. п. 8)</li>
+<li>Комментарий снабжения к заявке, который видит сотрудник; при отклонении комментарий (причина) обязателен</li>
+<li>Редактирование и отмена своей заявки, пока статус «Новая»</li>
+<li>Разграничение доступа по ролям (сотрудник не видит чужие заявки, не меняет статусы)</li>
+<li>Админ-раздел: список пользователей и назначение роли</li>
+<li>Поиск по номеру заявки, автору, названию позиции и обоснованию</li>
+<li>История смены статусов в карточке заявки (кто, когда, из какого статуса в какой)</li>
+</ol>
+<h3>Если останется время</h3>
+<ul>
+<li>Экспорт списка заявок в CSV (в прототипе уже есть)</li>
+<li>Простая статистика: всего, в работе, срочные, выполнено (в прототипе уже есть)</li>
+<li>Email-уведомления о смене статуса</li>
+<li>Прикрепление файлов (счёт, фото)</li>
+<li>Пагинация списков (по 20 заявок)</li>
+<li>Тёмная тема (в прототипе уже есть)</li>
+</ul>
+<h3>Не делаем</h3>
+<p>Онлайн-оплату, мобильное приложение, интеграции с внешними сервисами (1С, банки), многоступенчатое согласование с несколькими руководителями.</p>
+<h2>5. Страницы сайта</h2>
+<table>
+<thead><tr><th>Путь</th><th>Страница</th><th>Кто видит</th></tr></thead>
+<tbody>
+<tr><td><code>/login</code></td><td>Вход</td><td>все</td></tr>
+<tr><td><code>/register</code></td><td>Регистрация</td><td>все</td></tr>
+<tr><td><code>/requests</code></td><td>Мои заявки (сотрудник) или очередь (снабжение)</td><td>employee, buyer, admin</td></tr>
+<tr><td><code>/requests/new</code></td><td>Новая заявка</td><td>employee</td></tr>
+<tr><td><code>/requests/:id</code></td><td>Карточка заявки, комментарий, смена статуса, история</td><td>владелец, buyer, admin</td></tr>
+<tr><td><code>/requests/:id/edit</code></td><td>Редактирование заявки (только статус «Новая»)</td><td>владелец</td></tr>
+<tr><td><code>/admin/users</code></td><td>Пользователи и роли</td><td>admin</td></tr>
+<tr><td><code>/admin/dictionaries</code></td><td>Подразделения и категории</td><td>admin</td></tr>
+</tbody>
+</table>
+<p>Незалогиненный пользователь при заходе на любую страницу, кроме <code>/login</code> и <code>/register</code>, перенаправляется на <code>/login</code>. При нехватке прав показывается страница «Нет доступа».</p>
+<h2>6. Таблицы базы данных</h2>
+<h3>departments — подразделения</h3>
+<ul><li><code>id</code> (PK), <code>name</code> (уникальное)</li></ul>
+<h3>categories — категории закупок</h3>
+<ul><li><code>id</code> (PK), <code>name</code> (уникальное)</li></ul>
+<h3>users — пользователи</h3>
+<ul><li><code>id</code> (PK), <code>full_name</code>, <code>email</code> (уникальный, хранится в нижнем регистре), <code>password_hash</code>, <code>role</code> (<code>employee</code> | <code>buyer</code> | <code>admin</code>), <code>department_id</code> (FK → departments), <code>created_at</code></li></ul>
+<h3>requests — заявки</h3>
+<ul><li><code>id</code> (PK, нумерация с 1001), <code>author_id</code> (FK → users), <code>category_id</code> (FK → categories), <code>is_urgent</code> (boolean), <code>due_date</code> (date, может быть пустой), <code>budget</code> (numeric, может быть пустой, ≥ 0), <code>justification</code> (text, обязателен), <code>status</code> (<code>new</code> | <code>review</code> | <code>buying</code> | <code>done</code> | <code>rejected</code> | <code>cancelled</code>), <code>buyer_comment</code> (text), <code>created_at</code>, <code>updated_at</code></li></ul>
+<h3>request_items — позиции заявки</h3>
+<ul><li><code>id</code> (PK), <code>request_id</code> (FK → requests, удаляется вместе с заявкой), <code>name</code>, <code>quantity</code> (целое &gt; 0), <code>unit</code> (по умолчанию «шт.»)</li></ul>
+<h3>status_history — история статусов</h3>
+<ul><li><code>id</code> (PK), <code>request_id</code> (FK), <code>old_status</code>, <code>new_status</code>, <code>changed_by</code> (FK → users), <code>changed_at</code>. Запись создаётся при создании заявки и при каждой смене статуса в одной транзакции с изменением заявки.</li></ul>
+<p>Связи: подразделение 1—N пользователи; пользователь 1—N заявки; категория 1—N заявки; заявка 1—N позиции; заявка 1—N записи истории.</p>
+<p>Индексы: <code>requests(author_id)</code>, <code>requests(status)</code>, <code>request_items(request_id)</code>, <code>status_history(request_id)</code>.</p>
+<h2>7. API-маршруты</h2>
+<p>Все, кроме <code>/api/auth/*</code>, требуют заголовок <code>Authorization: Bearer &lt;token&gt;</code>.</p>
+<table>
+<thead><tr><th>Метод</th><th>Маршрут</th><th>Описание</th><th>Роль</th></tr></thead>
+<tbody>
+<tr><td>POST</td><td><code>/api/auth/register</code></td><td>Регистрация (роль всегда <code>employee</code>)</td><td>все</td></tr>
+<tr><td>POST</td><td><code>/api/auth/login</code></td><td>Вход, возвращает токен</td><td>все</td></tr>
+<tr><td>GET</td><td><code>/api/auth/me</code></td><td>Текущий пользователь</td><td>авторизованные</td></tr>
+<tr><td>GET</td><td><code>/api/requests?status=&amp;q=</code></td><td>Список: employee — только свои, buyer/admin — все; срочные первыми для buyer/admin</td><td>авторизованные</td></tr>
+<tr><td>POST</td><td><code>/api/requests</code></td><td>Создать заявку с позициями</td><td>employee</td></tr>
+<tr><td>GET</td><td><code>/api/requests/:id</code></td><td>Одна заявка с позициями и историей</td><td>владелец, buyer, admin</td></tr>
+<tr><td>PUT</td><td><code>/api/requests/:id</code></td><td>Изменить заявку (только статус <code>new</code>)</td><td>владелец</td></tr>
+<tr><td>POST</td><td><code>/api/requests/:id/cancel</code></td><td>Отменить заявку (только статус <code>new</code>)</td><td>владелец</td></tr>
+<tr><td>PATCH</td><td><code>/api/requests/:id/status</code></td><td>Сменить статус и/или комментарий</td><td>buyer, admin</td></tr>
+<tr><td>GET</td><td><code>/api/requests/export.csv</code></td><td>Выгрузка списка в CSV</td><td>buyer, admin</td></tr>
+<tr><td>GET</td><td><code>/api/stats</code></td><td>Счётчики по статусам, число срочных</td><td>buyer, admin</td></tr>
+<tr><td>GET</td><td><code>/api/categories</code>, <code>/api/departments</code></td><td>Справочники</td><td>авторизованные</td></tr>
+<tr><td>POST</td><td><code>/api/categories</code>, <code>/api/departments</code></td><td>Добавить в справочник</td><td>admin</td></tr>
+<tr><td>GET</td><td><code>/api/users</code></td><td>Список пользователей</td><td>admin</td></tr>
+<tr><td>PATCH</td><td><code>/api/users/:id/role</code></td><td>Назначить роль</td><td>admin</td></tr>
+</tbody>
+</table>
+<p>Пример создания заявки:</p>
+<pre>POST /api/requests
+{
+  "category_id": 2,
+  "is_urgent": true,
+  "due_date": "2026-11-25",
+  "budget": 48000,
+  "justification": "Вышел из строя монитор у оператора склада",
+  "items": [{ "name": "Монитор 24\"", "quantity": 2, "unit": "шт." }]
+}
+→ 201 { "id": 1044, "status": "new", ... }</pre>
+<p>Ошибки: 400 — неверные данные (в теле список полей с причинами), 401 — нет входа, 403 — нет прав, 404 — не найдено, 409 — недопустимый переход статуса или заявку уже нельзя менять.</p>
+<h2>8. Правила и ограничения</h2>
+<ul>
+<li>Допустимые переходы статусов: <code>new → review → buying → done</code>; из <code>new</code>, <code>review</code>, <code>buying</code> можно уйти в <code>rejected</code>; <code>cancelled</code> ставит только владелец из <code>new</code>. Из <code>done</code>, <code>rejected</code>, <code>cancelled</code> переходов нет. Пропускать этапы нельзя.</li>
+<li>При отклонении комментарий снабжения обязателен.</li>
+<li>В заявке минимум одна позиция; количество — целое число больше 0; обоснование обязательно; сумма не меньше 0; дата «нужно к» не в прошлом.</li>
+<li>Сотрудник не может менять статус, роль или чужие заявки — проверка на сервере, а не только в интерфейсе. Чужая заявка для сотрудника отвечает 404.</li>
+<li>Пароль минимум 8 символов, хранится только как bcrypt-хеш; сообщение об ошибке входа не говорит, что именно неверно (email или пароль).</li>
+<li>Регистрация всегда создаёт роль <code>employee</code>; первый администратор создаётся скриптом начального заполнения.</li>
+<li>Весь пользовательский текст экранируется при выводе (защита от XSS).</li>
+<li>Интерфейс на русском, адаптивный (работает с телефона), доступный: подписи у полей, видимый фокус, контраст не ниже AA.</li>
+<li>Просроченной считается заявка, у которой дата «нужно к» прошла, а статус не <code>done</code>, <code>rejected</code>, <code>cancelled</code>; в списке она помечается.</li>
+</ul>
+<h2>9. Приёмка (чек-лист)</h2>
+<ol>
+<li>Сотрудник регистрируется, входит, создаёт заявку с двумя позициями — она появляется в его списке со статусом «Новая».</li>
+<li>Другой сотрудник не видит эту заявку; прямой запрос <code>/api/requests/:id</code> возвращает 404.</li>
+<li>Снабжение видит заявку в очереди, переводит её «Новая → На согласовании → В закупке → Выполнена»; в карточке видна история с датами и именами.</li>
+<li>Перевод «Новая → Выполнена» отклоняется сервером (409).</li>
+<li>Отклонение без комментария не проходит.</li>
+<li>Сотрудник редактирует и отменяет заявку в статусе «Новая», после смены статуса — не может.</li>
+<li>Сотрудник не может сменить статус через API (403).</li>
+<li>Админ назначает пользователю роль <code>buyer</code>, и у того появляется очередь.</li>
+<li>Сайт корректно работает на экране 360 px.</li>
+</ol>
+<h2>10. Порядок разработки (для ИИ-агента)</h2>
+<ol>
+<li>Каркас проекта, подключение PostgreSQL, миграции таблиц и начальные данные (справочники, первый админ)</li>
+<li>Авторизация и роли, middleware проверки прав</li>
+<li>CRUD заявок для сотрудника, история статусов</li>
+<li>Очередь снабжения, смена статусов по правилам, комментарии, поиск</li>
+<li>Админ-раздел</li>
+<li>Статистика и экспорт CSV</li>
+<li>Стили по прототипу, проверка на телефоне</li>
+<li>Прохождение чек-листа приёмки</li>
+</ol></article>
+
+<article class="doc" id="comp" hidden><h1>Таблица конкурентов</h1>
+<p>Тема: «Разработка веб-сервиса подачи внутренних заявок в отдел снабжения»</p>
+<table>
+<thead><tr><th>Сервис</th><th>Что делает пользователь</th><th>Что делает администратор</th><th>Что понравилось</th><th>Чего не хватает / минусы</th><th>Что берём себе</th></tr></thead>
+<tbody>
+<tr><td><strong>Procurify</strong></td><td>Создаёт заявку на покупку с позициями и суммой, следит за статусом</td><td>Согласует или отклоняет заявки, ведёт бюджеты и поставщиков</td><td>Чёткая цепочка статусов, видно, на каком этапе заявка</td><td>Перегружен для небольшой компании, платный, интерфейс на английском</td><td>Цветные статусы и прозрачная цепочка</td></tr>
+<tr><td><strong>Precoro</strong></td><td>Подаёт заявку, прикрепляет файлы, видит историю согласования</td><td>Настраивает правила согласования, формирует заказы поставщикам</td><td>История действий по заявке, прикрепление документов</td><td>Сложная настройка правил согласования</td><td>История статусов в карточке, позже — файлы</td></tr>
+<tr><td><strong>Zoho Creator / Zoho Procurement</strong></td><td>Заполняет форму заявки, получает уведомления о смене статуса</td><td>Настраивает поля формы, роли, отчёты</td><td>Уведомления и простая форма</td><td>Много настроек, нужен конструктор, чтобы получить нужную форму</td><td>Простая форма, уведомления (если останется время)</td></tr>
+<tr><td><strong>Битрикс24 (заявки / бизнес-процессы)</strong></td><td>Создаёт заявку из шаблона, комментирует в карточке</td><td>Ведёт заявки по этапам (канбан), назначает ответственных</td><td>Канбан по статусам, комментарии внутри заявки</td><td>Много лишних функций, тяжёлый интерфейс на телефоне</td><td>Комментарий снабжения в карточке, фильтры по статусам</td></tr>
+<tr><td><strong>Odoo Purchase</strong></td><td>Создаёт запрос на закупку, указывает количество</td><td>Превращает запросы в заказы поставщикам, ведёт учёт</td><td>Позиции с количеством и единицами измерения</td><td>Требует установки и настройки всей системы</td><td>Позиции с количеством и единицей</td></tr>
+</tbody>
+</table>
+<h2>Вывод</h2>
+<p>Готовые системы закрывают закупки целиком (бюджеты, поставщики, многоступенчатое согласование) и поэтому сложны для небольшой организации. Наш сервис делает одно: простая подача заявки, понятные статусы, комментарий снабжения и история — без лишнего. Преимущества: быстрый ввод, русский интерфейс, работа с телефона, разграничение по ролям.</p>
+<blockquote>
+<p>Перед сдачей: открой минимум 2 сайта из списка, пройди как пользователь и поправь столбцы «Что понравилось» и «Чего не хватает» своими впечатлениями. Названия и функции даны по общему описанию сервисов, актуальные детали проверь на сайтах.</p>
+</blockquote></article>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
