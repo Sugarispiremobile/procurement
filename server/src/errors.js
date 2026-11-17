@@ -28,6 +28,10 @@ export function errorHandler(err, req, res, next) {
   }
   if (err?.code === '23503') return res.status(400).json({ error: 'Указана несуществующая связанная запись' });
   if (err?.code === '23505') return res.status(409).json({ error: 'Такая запись уже существует' });
+  // 22007/22008 — несуществующая дата, 22003 — число вне диапазона, 22P02 — неверный формат значения
+  if (['22007', '22008', '22003', '22P02'].includes(err?.code)) {
+    return res.status(400).json({ error: 'Некорректное значение в запросе' });
+  }
   console.error(err);
   res.status(500).json({ error: 'Внутренняя ошибка сервера' });
 }

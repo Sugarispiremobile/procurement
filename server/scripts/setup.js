@@ -14,13 +14,15 @@ const envPath = path.join(serverDir, '.env');
 const log = (m) => console.log(`• ${m}`);
 
 // ---------- 1. .env ----------
+let generatedAdminPassword = null;
 if (!fs.existsSync(envPath)) {
+  generatedAdminPassword = crypto.randomBytes(9).toString('base64url'); // 12 символов, у каждого запуска свой
   let text = fs.readFileSync(path.join(serverDir, '.env.example'), 'utf8');
   text = text
     .replace(/^JWT_SECRET=.*$/m, `JWT_SECRET=${crypto.randomBytes(48).toString('hex')}`)
-    .replace(/^ADMIN_PASSWORD=.*$/m, 'ADMIN_PASSWORD=admin12345');
+    .replace(/^ADMIN_PASSWORD=.*$/m, `ADMIN_PASSWORD=${generatedAdminPassword}`);
   fs.writeFileSync(envPath, text);
-  log('Создан server/.env (администратор: admin@example.com / admin12345 — смените пароль для реальной работы)');
+  log('Создан server/.env со случайными JWT_SECRET и паролем администратора');
 } else {
   log('server/.env уже есть');
 }
@@ -87,4 +89,9 @@ for (const script of ['migrate.js', 'seed.js']) {
   if (r.status !== 0) process.exit(r.status ?? 1);
 }
 console.log('\n✓ База готова. Запуск: npm run dev (в server) и npm run dev (в client).');
-console.log('  Вход: admin@example.com / admin12345, демо — buyer@example.com, anna@example.com (пароль demo12345).');
+if (generatedAdminPassword) {
+  console.log(`  Администратор: ${env.ADMIN_EMAIL} / ${generatedAdminPassword}   (показан один раз; он же записан в server/.env)`);
+} else {
+  console.log(`  Администратор: ${env.ADMIN_EMAIL} (пароль — ADMIN_PASSWORD в server/.env).`);
+}
+console.log('  Демо-аккаунты (при SEED_DEMO=1): buyer@example.com, anna@example.com, пароль demo12345.');

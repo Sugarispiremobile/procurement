@@ -1,3 +1,5 @@
+import { parseDomains, parseTrustProxy } from './policy.js';
+
 const required = (name) => {
   const v = process.env[name];
   if (!v) throw new Error(`Не задана переменная окружения ${name} (см. .env.example)`);
@@ -16,4 +18,8 @@ export const config = {
   databaseUrl: required('DATABASE_URL'),
   jwtSecret,
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '8h',
+  // за обратным прокси (nginx и т.п.) укажите число прокси, напр. TRUST_PROXY=1; иначе пусто
+  trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
+  // регистрация только с этих доменов, напр. ALLOWED_EMAIL_DOMAINS=company.kz; пусто — любой email
+  allowedEmailDomains: parseDomains(process.env.ALLOWED_EMAIL_DOMAINS),
 };

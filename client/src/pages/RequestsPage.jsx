@@ -29,6 +29,7 @@ export default function RequestsPage() {
   const changeView = (v) => { setView(v); try { localStorage.setItem('procurement-view', v); } catch { /* ignore */ } };
   const board = isBuyer && view === 'board';
   const [list, setList] = useState(null);
+  const [truncated, setTruncated] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -40,7 +41,7 @@ export default function RequestsPage() {
     let live = true;
     setError('');
     api.get(`/requests?q=${encodeURIComponent(debounced)}`)
-      .then((d) => live && setList(d.requests))
+      .then((d) => { if (live) { setList(d.requests); setTruncated(Boolean(d.truncated)); } })
       .catch((e) => live && setError(e.full));
     return () => { live = false; };
   }, [debounced]);
@@ -86,6 +87,11 @@ export default function RequestsPage() {
           ))}
         </div>}
         {error && <p className="urgent" role="alert">{error}</p>}
+        {truncated && (
+          <p className="note" role="status">
+            Показаны только первые 500 заявок. Уточните поиск, чтобы увидеть остальные{isBuyer ? ' (CSV выгружает все найденные заявки)' : ''}.
+          </p>
+        )}
         {list === null && !error && <p className="empty">Загрузка…</p>}
         {list && !board && !shown.length && (
           <div className="empty">

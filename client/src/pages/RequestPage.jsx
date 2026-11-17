@@ -2,9 +2,15 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth, useToast } from '../context.jsx';
-import { NEXT, ST, fmtDT, fmtDate, fmtMoney, isOverdue } from '../constants.js';
+import { CLOSED, NEXT, ST, fmtDT, fmtDate, fmtMoney, isOverdue } from '../constants.js';
 import StatusBadge from '../components/StatusBadge.jsx';
 import Track from '../components/Track.jsx';
+
+function historyTitle(h) {
+  if (h.kind === 'comment') return 'Комментарий снабжения';
+  if (h.kind === 'edit') return 'Заявка отредактирована автором';
+  return h.old_status ? `${ST[h.old_status].t} → ${ST[h.new_status].t}` : `Создана: ${ST[h.new_status].t}`;
+}
 
 export default function RequestPage() {
   const { id } = useParams();
@@ -77,7 +83,12 @@ export default function RequestPage() {
           <summary>История статусов ({r.history.length})</summary>
           <ul>
             {r.history.map((h) => (
-              <li key={h.id}><b>{h.old_status ? `${ST[h.old_status].t} → ${ST[h.new_status].t}` : `Создана: ${ST[h.new_status].t}`}</b> · {h.changed_by} · {fmtDT(h.changed_at)}</li>
+              <li key={h.id}>
+                <b>{historyTitle(h)}</b> · {h.changed_by} · {fmtDT(h.changed_at)}
+                {h.kind === 'status' && h.comment && <div className="hist-note">Комментарий: {h.comment}</div>}
+                {h.kind === 'comment' && <div className="hist-note">{h.comment || 'комментарий удалён'}</div>}
+                {h.kind === 'edit' && <div className="hist-note">{h.comment}</div>}
+              </li>
             ))}
           </ul>
         </details>
@@ -89,7 +100,11 @@ export default function RequestPage() {
           </div>
         )}
 
-        {isBuyer && (
+        {isBuyer && CLOSED.includes(r.status) && r.buyer_comment && (
+          <div className="note"><b>Комментарий снабжения:</b> {r.buyer_comment}</div>
+        )}
+
+        {isBuyer && !CLOSED.includes(r.status) && (
           <div className="acts">
             <input value={comment} maxLength={500} onChange={(e) => setComment(e.target.value)} placeholder="Комментарий для сотрудника" aria-label="Комментарий снабжения" />
             <button className="btn ghost sm" disabled={busy} onClick={saveComment}>Сохранить комментарий</button>

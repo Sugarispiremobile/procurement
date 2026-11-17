@@ -16,6 +16,10 @@ try {
   process.exit(1);
 }
 
+if (config.isProd && !config.allowedEmailDomains.length) {
+  console.warn('ВНИМАНИЕ: ALLOWED_EMAIL_DOMAINS не задан — зарегистрироваться может любой желающий.');
+}
+
 const app = createApp();
 const server = app.listen(config.port, () => {
   console.log(`Сервер запущен: http://localhost:${config.port}`);

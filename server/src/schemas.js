@@ -2,19 +2,30 @@ import { z } from 'zod';
 
 const text = (max) => z.string().trim().max(max);
 
-export const todayStr = (d = new Date()) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+export { todayStr } from './tz.js';
+
+const INT4_MAX = 2147483647;
+const id = z.number().int().positive().max(INT4_MAX);
+
+/** Date.parse «прощает» 2026-02-31 (превращает в 3 марта), поэтому сверяем разобранную дату с исходной. */
+export const isRealDate = (s) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return false;
+  const [y, mo, d] = m.slice(1).map(Number);
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d;
+};
 
 const date = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата в формате ГГГГ-ММ-ДД')
-  .refine((s) => !Number.isNaN(Date.parse(s)), 'Некорректная дата');
+  .refine(isRealDate, 'Такой даты нет');
 
 export const registerSchema = z.object({
   full_name: text(120).min(2, 'Укажите имя'),
   email: z.string().trim().toLowerCase().email('Некорректный email').max(200),
   password: z.string().min(8, 'Пароль — минимум 8 символов').max(100),
-  department_id: z.number().int().positive().nullable().optional(),
+  department_id: id.nullable().optional(),
 });
 
 export const loginSchema = z.object({
@@ -24,15 +35,15 @@ export const loginSchema = z.object({
 
 export const itemSchema = z.object({
   name: text(120).min(1, 'Название позиции обязательно'),
-  quantity: z.number({ invalid_type_error: 'Количество — число' }).int('Количество — целое число').positive('Количество должно быть больше 0'),
+  quantity: z.number({ invalid_type_error: 'Количество — число' }).int('Количество — целое число').positive('Количество должно быть больше 0').max(1_000_000, 'Слишком большое количество'),
   unit: text(12).default('шт.').transform((u) => u || 'шт.'),
 });
 
 export const requestSchema = z.object({
-  category_id: z.number().int().positive(),
+  category_id: id,
   is_urgent: z.boolean().default(false),
   due_date: date.nullable().optional(),
-  budget: z.number().min(0, 'Сумма не может быть отрицательной').max(1e12).nullable().optional(),
+  budget: z.number().min(0, 'Сумма не может быть отрицательной').max(999_999_999_999.99, 'Слишком большая сумма').nullable().optional(),
   justification: text(1000).min(1, 'Обоснование обязательно'),
   items: z.array(itemSchema).min(1, 'Добавьте хотя бы одну позицию').max(50),
 });
@@ -45,5 +56,7 @@ export const statusPatchSchema = z
   .refine((v) => v.status !== undefined || v.comment !== undefined, 'Укажите статус и/или комментарий');
 
 export const rolePatchSchema = z.object({ role: z.enum(['employee', 'buyer', 'admin']) });
+
+export const activePatchSchema = z.object({ is_active: z.boolean() });
 
 export const dictSchema = z.object({ name: text(100).min(1, 'Название обязательно') });
