@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context.jsx';
+import { cfg } from '../constants.js';
 import Landing from './Landing.jsx';
 
 export default function Login() {
@@ -37,12 +38,14 @@ export default function Login() {
       <input id="password" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
       <p className="urgent" role="alert">{err}</p>
       <button className="btn" disabled={busy}>{busy ? 'Входим…' : 'Войти'}</button>
-      <p className="meta">Нет аккаунта? <Link to="/register">Зарегистрироваться</Link></p>
-      <div className="demo">
+      {cfg.registrationOpen
+        ? <p className="meta">Нет аккаунта? <Link to="/register">Зарегистрироваться</Link></p>
+        : <p className="meta">Доступ выдаёт администратор: вам придёт ссылка-приглашение.</p>}
+      {import.meta.env.DEV && <div className="demo">
         Демо-доступ (пароль <code>demo12345</code>):{' '}
         <button type="button" onClick={() => fill('anna@example.com', 'demo12345')}>сотрудник</button>{' · '}
         <button type="button" onClick={() => fill('buyer@example.com', 'demo12345')}>снабжение</button>
-      </div>
+      </div>}
     </form>
     </Landing>
   );

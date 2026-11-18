@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../context.jsx';
+import { cfg } from '../constants.js';
 import Landing from './Landing.jsx';
 
 export default function Register() {
@@ -17,6 +18,17 @@ export default function Register() {
   }, []);
 
   if (user) return <Navigate to="/requests" replace />;
+  if (!cfg.registrationOpen) {
+    return (
+      <Landing>
+        <div className="panel auth">
+          <h2>Регистрация закрыта</h2>
+          <p className="meta">Самостоятельная регистрация отключена. Попросите администратора создать вам учётную запись — на почту придёт ссылка для установки пароля.</p>
+          <p className="meta"><Link to="/login">Войти</Link></p>
+        </div>
+      </Landing>
+    );
+  }
 
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const submit = async (e) => {
@@ -37,7 +49,7 @@ export default function Register() {
       <h2>Регистрация</h2>
       <label htmlFor="fn">Ваше имя</label>
       <input id="fn" required maxLength={120} autoComplete="name" value={f.full_name} onChange={set('full_name')} />
-      <label htmlFor="em" style={{ marginTop: 12 }}>Email</label>
+      <label htmlFor="em" style={{ marginTop: 12 }}>Email (только @{cfg.domain})</label>
       <input id="em" type="email" required autoComplete="email" value={f.email} onChange={set('email')} />
       <label htmlFor="pw" style={{ marginTop: 12 }}>Пароль (минимум 8 символов)</label>
       <input id="pw" type="password" required minLength={8} autoComplete="new-password" value={f.password} onChange={set('password')} />

@@ -2,15 +2,11 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth, useToast } from '../context.jsx';
-import { CLOSED, NEXT, ST, fmtDT, fmtDate, fmtMoney, isOverdue } from '../constants.js';
+import { NEXT, ST, fmtDT, fmtDate, fmtMoney, isOverdue } from '../constants.js';
 import StatusBadge from '../components/StatusBadge.jsx';
 import Track from '../components/Track.jsx';
-
-function historyTitle(h) {
-  if (h.kind === 'comment') return 'Комментарий снабжения';
-  if (h.kind === 'edit') return 'Заявка отредактирована автором';
-  return h.old_status ? `${ST[h.old_status].t} → ${ST[h.new_status].t}` : `Создана: ${ST[h.new_status].t}`;
-}
+import Timeline from '../components/Timeline.jsx';
+import Files from '../components/Files.jsx';
 
 export default function RequestPage() {
   const { id } = useParams();
@@ -18,37 +14,52 @@ export default function RequestPage() {
   const notify = useToast();
   const [r, setR] = useState(null);
   const [error, setError] = useState('');
-  const [comment, setComment] = useState('');
   const [busy, setBusy] = useState(false);
+  const [body, setBody] = useState('');
+  const [reason, setReason] = useState(null); // null — поле причины скрыто
+  const [buyers, setBuyers] = useState([]);
 
   useEffect(() => {
-    api.get(`/requests/${id}`)
-      .then((d) => { setR(d); setComment(d.buyer_comment); })
-      .catch((e) => setError(e.status === 404 ? 'Заявка не найдена' : e.full));
+    api.get(`/requests/${id}`).then(setR).catch((e) => setError(e.status === 404 ? 'Заявка не найдена' : e.full));
   }, [id]);
+
+  const isAdmin = user.role === 'admin';
+  useEffect(() => {
+    if (!isAdmin) return;
+    api.get('/users').then((d) => setBuyers(d.users.filter((u) => u.is_active && ['buyer', 'admin'].includes(u.role)))).catch(() => {});
+  }, [isAdmin]);
 
   if (error) return <div className="panel"><h2>{error}</h2><Link to="/requests">К списку заявок</Link></div>;
   if (!r) return <p className="empty">Загрузка…</p>;
 
   const isBuyer = user.role !== 'employee';
   const isOwner = r.author_id === user.id;
+  const closed = ['done', 'rejected', 'cancelled'].includes(r.status);
+  const mine = r.assignee_id === user.id;
+  // B3: менять статус может ответственный или админ; пока никого нет — любой снабженец
+  const canMove = isBuyer && !closed && (isAdmin || !r.assignee_id || mine);
 
   const run = async (fn, okMsg) => {
     setBusy(true);
+    try { setR(await fn()); if (okMsg) notify(okMsg); return true; } catch (e) { notify(e.full, true); return false; } finally { setBusy(false); }
+  };
+  const move = (to, comment) => run(() => api.patch(`/requests/${id}/status`, { status: to, comment }), `Статус: ${ST[to].t}`);
+  const assign = (assigneeId) => run(() => api.post(`/requests/${id}/assign`, assigneeId === undefined ? {} : { assignee_id: assigneeId }), 'Ответственный обновлён');
+  const cancel = () => confirm(`Отменить заявку №${id}?`) && run(() => api.post(`/requests/${id}/cancel`), 'Заявка отменена');
+  const sendComment = async (e) => {
+    e.preventDefault();
+    if (!body.trim()) return;
+    setBusy(true);
     try {
-      const d = await fn();
-      setR(d); setComment(d.buyer_comment); notify(okMsg);
-    } catch (e) { notify(e.full, true); } finally { setBusy(false); }
+      const d = await api.post(`/requests/${id}/comments`, { body: body.trim() });
+      setR({ ...r, comments: d.comments });
+      setBody('');
+    } catch (ex) { notify(ex.full, true); } finally { setBusy(false); }
   };
-
-  const saveComment = () => run(() => api.patch(`/requests/${id}/status`, { comment: comment.trim() }), 'Комментарий сохранён');
-  const move = (to) => {
-    if (to === 'rejected' && !comment.trim()) return notify('Укажите причину отклонения в комментарии', true);
-    return run(() => api.patch(`/requests/${id}/status`, { status: to, comment: comment.trim() }), `Статус: ${ST[to].t}`);
-  };
-  const cancel = () => {
-    if (!confirm(`Отменить заявку №${id}?`)) return;
-    return run(() => api.post(`/requests/${id}/cancel`), 'Заявка отменена');
+  const reject = async (e) => {
+    e.preventDefault();
+    if (!reason.trim()) return notify('Укажите причину отклонения', true);
+    if (await move('rejected', reason.trim())) setReason(null);
   };
 
   return (
@@ -73,25 +84,27 @@ export default function RequestPage() {
           <span>💰 <b>{fmtMoney(r.budget)}</b></span>
         </div>
         <Track status={r.status} />
+
+        <h3 style={{ fontSize: 13, marginTop: 20 }}>Ответственный</h3>
+        <div className="assignee">
+          <span>{r.assignee_name ? <b>{r.assignee_name}</b> : <em className="meta">не назначен</em>}</span>
+          {isBuyer && !closed && !r.assignee_id && <button className="btn sm" type="button" disabled={busy} onClick={() => assign()}>Взять в работу</button>}
+          {isBuyer && !closed && r.assignee_id && !mine && !isAdmin && <span className="meta">Заявку ведёт {r.assignee_name}</span>}
+          {isAdmin && !closed && (
+            <select aria-label="Назначить ответственного" value={r.assignee_id ?? ''} disabled={busy} onChange={(e) => assign(e.target.value ? Number(e.target.value) : null)}>
+              <option value="">— без ответственного —</option>
+              {buyers.map((b) => <option key={b.id} value={b.id}>{b.full_name}</option>)}
+            </select>
+          )}
+        </div>
+
         <h3 style={{ fontSize: 13, marginTop: 20 }}>Позиции</h3>
         <ul className="items">{r.items.map((i) => <li key={i.id}>{i.name} — <b>{i.quantity} {i.unit}</b></li>)}</ul>
         <h3 style={{ fontSize: 13, marginTop: 16 }}>Обоснование</h3>
         <p style={{ margin: '6px 0 0' }}>{r.justification}</p>
-        {r.buyer_comment && !isBuyer && <div className="note"><b>Снабжение:</b> {r.buyer_comment}</div>}
 
-        <details className="hist" open>
-          <summary>История статусов ({r.history.length})</summary>
-          <ul>
-            {r.history.map((h) => (
-              <li key={h.id}>
-                <b>{historyTitle(h)}</b> · {h.changed_by} · {fmtDT(h.changed_at)}
-                {h.kind === 'status' && h.comment && <div className="hist-note">Комментарий: {h.comment}</div>}
-                {h.kind === 'comment' && <div className="hist-note">{h.comment || 'комментарий удалён'}</div>}
-                {h.kind === 'edit' && <div className="hist-note">{h.comment}</div>}
-              </li>
-            ))}
-          </ul>
-        </details>
+        <Files requestId={r.id} files={r.files} onChange={(files) => setR({ ...r, files })}
+          canUpload={isBuyer || (isOwner && !closed)} meId={user.id} closed={closed} />
 
         {isOwner && r.status === 'new' && (
           <div className="acts">
@@ -100,21 +113,32 @@ export default function RequestPage() {
           </div>
         )}
 
-        {isBuyer && CLOSED.includes(r.status) && r.buyer_comment && (
-          <div className="note"><b>Комментарий снабжения:</b> {r.buyer_comment}</div>
-        )}
-
-        {isBuyer && !CLOSED.includes(r.status) && (
+        {isBuyer && !closed && !canMove && <p className="meta">Менять статус может только ответственный ({r.assignee_name}) или администратор.</p>}
+        {canMove && (
           <div className="acts">
-            <input value={comment} maxLength={500} onChange={(e) => setComment(e.target.value)} placeholder="Комментарий для сотрудника" aria-label="Комментарий снабжения" />
-            <button className="btn ghost sm" disabled={busy} onClick={saveComment}>Сохранить комментарий</button>
-            {NEXT[r.status].map((k) => (
-              <button key={k} disabled={busy} className={`btn sm ${k === 'rejected' ? 'danger' : 'ghost'}`} onClick={() => move(k)}>
-                {k === 'rejected' ? 'Отклонить' : `→ ${ST[k].t}`}
-              </button>
+            {NEXT[r.status].filter((k) => k !== 'rejected').map((k) => (
+              <button key={k} disabled={busy} className="btn ghost sm" onClick={() => move(k)}>→ {ST[k].t}</button>
             ))}
+            {NEXT[r.status].includes('rejected') && reason === null && <button className="btn danger sm" disabled={busy} onClick={() => setReason('')}>Отклонить…</button>}
           </div>
         )}
+        {canMove && reason !== null && (
+          <form className="reasonbox" onSubmit={reject}>
+            <label htmlFor="reason">Причина отклонения (обязательно, увидит сотрудник)</label>
+            <textarea id="reason" autoFocus maxLength={1000} value={reason} onChange={(e) => setReason(e.target.value)} />
+            <div className="acts"><button className="btn danger sm" disabled={busy}>Отклонить заявку</button>
+              <button type="button" className="btn ghost sm" onClick={() => setReason(null)}>Не отклонять</button></div>
+          </form>
+        )}
+
+        <h3 style={{ fontSize: 13, marginTop: 24 }}>Переписка и история ({r.comments.length + r.history.length})</h3>
+        <Timeline comments={r.comments} history={r.history} />
+        <form className="commentform" onSubmit={sendComment}>
+          <label htmlFor="cm" className="sr">Новый комментарий</label>
+          <textarea id="cm" maxLength={1000} placeholder={isBuyer ? 'Комментарий или вопрос сотруднику' : 'Ответ или дополнение для снабжения'} value={body} onChange={(e) => setBody(e.target.value)} />
+          <div className="acts"><button className="btn sm" disabled={busy || !body.trim()}>Отправить</button>
+            <span className="meta">{body.length}/1000 · комментарии нельзя изменить или удалить</span></div>
+        </form>
       </article>
     </>
   );

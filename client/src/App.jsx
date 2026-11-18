@@ -8,9 +8,8 @@ import RequestForm from './pages/RequestForm.jsx';
 import RequestPage from './pages/RequestPage.jsx';
 import AdminUsers from './pages/AdminUsers.jsx';
 import AdminDictionaries from './pages/AdminDictionaries.jsx';
-import DocPage from './pages/DocPage.jsx';
-import specHtml from './docs/spec.html?raw';
-import compHtml from './docs/competitors.html?raw';
+import Profile from './pages/Profile.jsx';
+import Invite from './pages/Invite.jsx';
 
 function Layout() {
   const { user, logout } = useAuth();
@@ -26,10 +25,10 @@ function Layout() {
         </Link>
         <div className="hctl">
           {user && (
-            <div className="me">
+            <Link to="/profile" className="me" title="Профиль" style={{ textDecoration: 'none', color: 'inherit' }}>
               <span className="avatar">{initials(user.full_name)}</span>
               <div><b>{user.full_name}</b><span>{ROLES[user.role]}</span></div>
-            </div>
+            </Link>
           )}
           <button className="btn ghost sm icon" type="button" onClick={toggleTheme} aria-label="Сменить тему" title="Сменить тему">◐</button>
           {user ? <button className="btn ghost sm" type="button" onClick={logout}>Выйти</button> : <Link className="btn ghost sm" to="/login">Войти</Link>}
@@ -37,12 +36,11 @@ function Layout() {
       </header>
       <nav className="tabs" aria-label="Разделы">
         {user && <NavLink to="/requests" end>Заявки</NavLink>}
-        {user?.role === 'employee' && <NavLink to="/requests/new">+ Новая заявка</NavLink>}
+        {user && <NavLink to="/requests/new">+ Новая заявка</NavLink>}
         {user?.role === 'admin' && <NavLink to="/admin/users">Пользователи</NavLink>}
         {user?.role === 'admin' && <NavLink to="/admin/dictionaries">Справочники</NavLink>}
         <span className="sep" />
-        <NavLink to="/docs/spec">ТЗ</NavLink>
-        <NavLink to="/docs/competitors">Конкуренты</NavLink>
+        {user && <NavLink to="/profile">Профиль</NavLink>}
       </nav>
       <Outlet />
     </div>
@@ -50,7 +48,7 @@ function Layout() {
 }
 
 /** Закрывает страницу от неавторизованных и от ролей, которым она не положена. */
-function Guard({ roles }) {
+export function Guard({ roles }) {
   const { user, loading } = useAuth();
   const loc = useLocation();
   if (loading) return <p className="empty">Загрузка…</p>;
@@ -74,16 +72,14 @@ export default function App() {
         <Route index element={<Home />} />
         <Route path="login" element={<Login />} />
         <Route path="register" element={<Register />} />
-        <Route path="docs/spec" element={<DocPage html={specHtml} />} />
-        <Route path="docs/competitors" element={<DocPage html={compHtml} />} />
+        <Route path="invite/:token" element={<Invite />} />
 
         <Route element={<Guard />}>
           <Route path="requests" element={<RequestsPage />} />
           <Route path="requests/:id" element={<RequestPage />} />
-        </Route>
-        <Route element={<Guard roles={['employee']} />}>
           <Route path="requests/new" element={<RequestForm />} />
           <Route path="requests/:id/edit" element={<RequestForm />} />
+          <Route path="profile" element={<Profile />} />
         </Route>
         <Route element={<Guard roles={['admin']} />}>
           <Route path="admin/users" element={<AdminUsers />} />

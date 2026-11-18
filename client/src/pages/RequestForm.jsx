@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { useToast } from '../context.jsx';
-import { todayStr } from '../constants.js';
+import { cfg, todayStr } from '../constants.js';
 
 const emptyItem = () => ({ name: '', quantity: 1, unit: 'шт.' });
 
@@ -30,6 +30,7 @@ export default function RequestForm() {
     api.get(`/requests/${id}`).then((r) => {
       if (r.status !== 'new') { setErr('Заявку можно менять только в статусе «Новая»'); return; }
       setOrig(r);
+      setCategories((cs) => (cs.some((c) => c.id === r.category_id) ? cs : [...cs, { id: r.category_id, name: `${r.category} (архив)` }]));
       setF({ category_id: r.category_id, is_urgent: r.is_urgent, due_date: r.due_date ?? '', budget: r.budget ?? '', justification: r.justification });
       setItems(r.items.map(({ name, quantity, unit }) => ({ name, quantity, unit })));
     }).catch((e) => setErr(e.full)).finally(() => setLoaded(true));
@@ -83,7 +84,7 @@ export default function RequestForm() {
           <input id="due" type="date" value={f.due_date} onChange={(e) => setF({ ...f, due_date: e.target.value })} />
         </div>
         <div>
-          <label htmlFor="budget">Ориентировочная сумма, ₽</label>
+          <label htmlFor="budget">Ориентировочная сумма, {cfg.currency}</label>
           <input id="budget" type="number" min="0" step="1" inputMode="numeric" value={f.budget} onChange={(e) => setF({ ...f, budget: e.target.value })} />
         </div>
         <div className="full">

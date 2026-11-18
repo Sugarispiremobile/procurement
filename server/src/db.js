@@ -1,12 +1,11 @@
 import pg from 'pg';
 import { config } from './config.js';
 
-// DATE отдаём строкой 'YYYY-MM-DD', иначе драйвер превратит её в Date со сдвигом часового пояса
-pg.types.setTypeParser(1082, (v) => v);
-// NUMERIC (сумма) отдаём числом
-pg.types.setTypeParser(1700, (v) => (v === null ? null : Number(v)));
+pg.types.setTypeParser(1082, (v) => v); // DATE строкой, без сдвига часового пояса
+pg.types.setTypeParser(1700, (v) => (v === null ? null : Number(v))); // NUMERIC числом
 
-export const pool = new pg.Pool({ connectionString: config.databaseUrl, max: 10 });
+// F5: каждое соединение работает в APP_TZ, поэтому CURRENT_DATE = «сегодня» в APP_TZ
+export const pool = new pg.Pool({ connectionString: config.databaseUrl, max: 10, options: `-c TimeZone=${config.timeZone}` });
 
 export const query = (text, params) => pool.query(text, params);
 
