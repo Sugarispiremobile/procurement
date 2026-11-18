@@ -21,10 +21,11 @@ export default function RequestCard({ r, isBuyer, index = 0 }) {
         <span>👤 <b>{r.author_name}</b>{r.department ? `, ${r.department}` : ''}</span>
         <span>📅 к <b>{fmtDate(r.due_date)}</b></span>
         <span>💰 <b>{fmtMoney(r.budget)}</b></span>
+        {isBuyer && <span>🧑‍💼 {r.assignee_name ? <b>{r.assignee_name}</b> : <em>без ответственного</em>}</span>}
       </div>
       <ul className="items">{r.items.map((i) => <li key={i.id}>{i.name} — {i.quantity} {i.unit}</li>)}</ul>
       <Track status={r.status} />
-      {r.buyer_comment && !isBuyer && <div className="note"><b>Снабжение:</b> {r.buyer_comment}</div>}
+      {r.last_comment && <div className="note"><b>Последний комментарий:</b> {r.last_comment}</div>}
     </Link>
   );
 }

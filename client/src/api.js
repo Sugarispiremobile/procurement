@@ -50,9 +50,33 @@ export const api = {
   post: (u, b) => request('POST', u, b ?? {}),
   put: (u, b) => request('PUT', u, b),
   patch: (u, b) => request('PATCH', u, b),
+  del: async (u) => {
+    const res = await raw('DELETE', u);
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      throw new ApiError(res.status, data?.error ?? 'Ошибка запроса', data?.details);
+    }
+  },
 };
 
-/** Скачивание файла (CSV) с авторизацией. */
+/** Загрузка файла «сырым» телом; имя передаётся в заголовке. */
+export async function upload(url, file) {
+  const headers = { 'Content-Type': 'application/octet-stream', 'X-File-Name': encodeURIComponent(file.name) };
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  let res;
+  try {
+    res = await fetch(`/api${url}`, { method: 'POST', headers, body: file });
+  } catch {
+    throw new ApiError(0, 'Нет связи с сервером');
+  }
+  if (res.status === 401 && token) onUnauthorized();
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new ApiError(res.status, data?.error ?? 'Не удалось загрузить файл', data?.details);
+  return data;
+}
+
+/** Скачивание файла (CSV, вложение) с авторизацией. */
 export async function download(url, filename) {
   const res = await raw('GET', url);
   if (!res.ok) throw new ApiError(res.status, 'Не удалось выгрузить файл');

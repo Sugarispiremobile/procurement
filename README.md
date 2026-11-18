@@ -1,87 +1,40 @@
-# Заявки в отдел снабжения
+# Заявки в отдел снабжения — версия 1.1
 
-Веб-сервис по ТЗ (`docs/spec.md`): сотрудники подают заявки на закупку, снабжение меняет статусы и комментирует, администратор управляет ролями и справочниками.
+Внутренний сервис: сотрудники подают заявки на закупку, снабжение ведёт их по статусам (ответственный, переписка, вложения), администратор управляет доступом и справочниками.
+Стек: React 19 + Vite · Node.js 20 + Express 5 · PostgreSQL 16 · zod · JWT.
 
-- **Backend:** Node.js 20.6+, Express 5, PostgreSQL, JWT, bcrypt (пакет `bcryptjs`), zod
-- **Frontend:** React 19, Vite, React Router
-- **Прототип:** `prototype/zayavki.html` (+ `style.css`, `app.js`) — исходный статический вариант
-
-## Запуск для разработки
-
-Нужны Node.js 20.6+ и PostgreSQL 14+ (или Docker — тогда база поднимется сама).
-
+## Быстрый старт (разработка)
 ```bash
-# 1. Сервер: одна команда настраивает всё, что связано с БД
-cd server
-npm install
-npm run setup     # создаёт .env, запускает PostgreSQL через Docker (если он не запущен),
-                  # создаёт базу, применяет схему, загружает данные
-npm run dev       # http://localhost:3000
-
-# 2. Клиент (в другом терминале)
-cd client
-npm install
-npm run dev       # http://localhost:5173 (запросы /api проксируются на :3000)
+cd server && npm install && npm run setup     # .env, PostgreSQL через Docker, миграции, демо-данные
+npm run dev                                   # API: http://localhost:3000
+cd ../client && npm install && npm run dev    # UI:  http://localhost:5173
 ```
+Пароль администратора (`admin@example.com`) генерируется случайно и печатается один раз при `setup`. Демо-пользователи (`SEED_DEMO=1`): `buyer@example.com`, `anna@example.com`, пароль `demo12345`.
 
-`npm run setup` генерирует случайный пароль администратора (`admin@example.com`), печатает его один раз и записывает в `server/.env` (`ADMIN_PASSWORD`). Если PostgreSQL установлен без Docker, создайте пользователя и базу из `DATABASE_URL` (`procurement` / `procurement`) — `npm run setup` сделает остальное. Если сервер не видит базу, он при старте скажет об этом и подскажет команду.
-
-Демо-аккаунты (при `SEED_DEMO=1`, пароль у всех `demo12345`):
-
-| Email | Роль |
-| --- | --- |
-| `anna@example.com`, `sergey@example.com` | сотрудник |
-| `buyer@example.com` | снабжение |
-| `ADMIN_EMAIL` из `.env` | администратор |
-
-## Production
-
+## Тесты и качество
 ```bash
-cd client && npm run build      # создаёт client/dist
-cd ../server
-NODE_ENV=production npm start   # Express раздаёт и API, и собранный клиент
+cd server && TEST_DATABASE_URL=postgres://procurement:procurement@localhost:5432/procurement_test npm test   # база очищается!
+cd client && npm test && npm run lint && npm run build
 ```
+CI (GitHub Actions): lint → тесты сервера с PostgreSQL → тесты клиента → сборка → E2E (Playwright) → docker build.
 
-В production задайте `JWT_SECRET` не короче 32 символов, `SEED_DEMO=0`, смените пароль администратора и поставьте сервис за HTTPS.
+### E2E (Playwright)
 
-Настройки в `server/.env` (см. `.env.example`):
+Сценарии в `e2e/tests`: «сотрудник подаёт → снабжение берёт → комментарий → файл → выполнено» и «отклонение с причиной».
+Запуск: `cd client && npm run build`, затем `cd server && SEED_DEMO=1 npm run db:setup`, затем `cd e2e && npm install && npx playwright install chromium && npm test`
+(нужны `DATABASE_URL` и `JWT_SECRET`; по умолчанию база `procurement_e2e`). В CI это отдельное задание `e2e`.
 
-| Переменная | Назначение |
-| --- | --- |
-| `APP_TIMEZONE` | часовой пояс для «сегодня» и просрочки (по умолчанию `Asia/Almaty`) |
-| `TRUST_PROXY` | число обратных прокси (обычно `1` за nginx); без прокси — пусто |
-| `ALLOWED_EMAIL_DOMAINS` | домены email, которым разрешена регистрация (пусто — любые) |
+### Отличия от ТЗ 1.1
 
-PostgreSQL в `docker-compose.yml` слушает только `127.0.0.1`; пароль можно задать через `POSTGRES_PASSWORD`.
+- Миграции: вместо `node-pg-migrate` используется собственный минимальный раннер `server/scripts/migrate.js`
+  (версионные файлы `db/migrations/NNN_*.sql`, журнал `schema_migrations`, транзакция на каждый файл, advisory-lock).
+  Поведение то же; зависимость не нужна.
 
-## База данных
+## Продакшн
+`cp .env.prod.example .env`, заполнить, затем `docker compose -f docker-compose.prod.yml up -d --build` (Caddy с HTTPS, БД наружу не публикуется, ежедневные бэкапы). Подробно — [docs/admin-guide.md](docs/admin-guide.md), восстановление — [deploy/restore.md](deploy/restore.md).
 
-Схема: `server/db/schema.sql` (идемпотентная, `npm run db:migrate`). Таблицы: `departments`, `categories`, `users`, `requests` (нумерация с 1001), `request_items`, `status_history`. Ограничения целостности (количество > 0, сумма ≥ 0, допустимые роли и статусы, email в нижнем регистре, каскадное удаление позиций и истории) заданы на уровне БД, а не только в коде.
+## Документы
+[ТЗ и раздел «Версия 1.1»](docs/spec.md) · [Конкуренты](docs/competitors.md) · [Инструкция администратора](docs/admin-guide.md) · [Инструкция пользователя](docs/user-guide.md) · [CHANGELOG](CHANGELOG.md)
 
-## Структура
-
-```
-procurement/
-├─ server/
-│  ├─ db/schema.sql          схема PostgreSQL
-│  ├─ scripts/               migrate.js, seed.js
-│  ├─ src/                   app, config, db, auth, schemas (zod), statuses, errors
-│  │  └─ routes/             auth, requests, misc (справочники, пользователи, статистика)
-│  └─ test/                  тесты правил статусов и валидации (npm test)
-├─ client/src/               App, context, api, pages/*, components/*, docs/* (ТЗ и конкуренты)
-├─ docs/                     spec.md, competitors.md
-├─ prototype/                исходный HTML-прототип
-└─ docker-compose.yml        PostgreSQL для разработки
-```
-
-## Что реализовано
-
-Всё из раздела MVP ТЗ, а также из «если останется время»: поиск, история статусов, CSV, статистика, тёмная тема. Не сделаны: email-уведомления, файлы-вложения, пагинация (список ограничен 500 записями, при обрезке интерфейс об этом предупреждает; CSV выгружает все найденные заявки).
-
-Правила, которые проверяет сервер: сотрудник видит и меняет только свои заявки (чужая — 404); менять и отменять заявку можно только в статусе «Новая»; статусы меняются только по цепочке `new → review → buying → done` или в `rejected` (нарушение — 409); отклонение требует причины в том же запросе, она сохраняется в истории; в закрытой заявке комментарий менять нельзя; правки заявки и комментарии попадают в историю; регистрация всегда создаёт роль `employee`; администратор не может снять с себя роль; число попыток входа и регистраций ограничено; администратор может отключить пользователя (он сразу теряет доступ).
-
-## Отличия от ТЗ
-
-- Вместо `bcrypt` используется `bcryptjs` (тот же алгоритм и формат хеша, но без нативной сборки).
-- `GET /api/departments` открыт без входа: список нужен на странице регистрации.
-- Подразделение заявки берётся из профиля автора (в ТЗ оно хранится только у пользователя).
+## Настройка
+Все переменные описаны в `server/.env.example` (домен регистрации, `TRUST_PROXY`, SMTP, валюта `CURRENCY`, часовой пояс `APP_TZ`, срок приглашений).

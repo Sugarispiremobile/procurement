@@ -1,5 +1,4 @@
--- Схема БД сервиса заявок в снабжение (PostgreSQL 14+).
--- Скрипт идемпотентный: его можно запускать повторно (npm run db:migrate).
+-- 001: исходная схема (версия 1.0).
 
 CREATE TABLE IF NOT EXISTS departments (
   id   SERIAL PRIMARY KEY,
@@ -19,7 +18,6 @@ CREATE TABLE IF NOT EXISTS users (
   role          TEXT NOT NULL DEFAULT 'employee'
                 CHECK (role IN ('employee', 'buyer', 'admin')),
   department_id INTEGER REFERENCES departments(id) ON DELETE SET NULL,
-  is_active     BOOLEAN NOT NULL DEFAULT true,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -52,16 +50,8 @@ CREATE TABLE IF NOT EXISTS status_history (
   old_status TEXT,
   new_status TEXT NOT NULL,
   changed_by INTEGER NOT NULL REFERENCES users(id),
-  changed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  kind       TEXT NOT NULL DEFAULT 'status' CHECK (kind IN ('status', 'comment', 'edit')),
-  comment    TEXT
+  changed_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-
--- Для баз, созданных старой версией схемы
-ALTER TABLE users          ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
-ALTER TABLE status_history ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'status'
-  CHECK (kind IN ('status', 'comment', 'edit'));
-ALTER TABLE status_history ADD COLUMN IF NOT EXISTS comment TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_requests_author  ON requests(author_id);
 CREATE INDEX IF NOT EXISTS idx_requests_status  ON requests(status);

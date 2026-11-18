@@ -1,5 +1,15 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { api, getToken, setToken, setUnauthorizedHandler } from './api.js';
+import { cfg } from './constants.js';
+
+/* ---------- настройки сервера (валюта, часовой пояс, регистрация) ---------- */
+export function ConfigProvider({ children }) {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    api.get('/config').then((d) => Object.assign(cfg, d)).catch(() => {}).finally(() => setReady(true));
+  }, []);
+  return ready ? children : <p className="empty">Загрузка…</p>;
+}
 
 /* ---------- авторизация ---------- */
 const AuthCtx = createContext(null);
@@ -27,6 +37,9 @@ export function AuthProvider({ children }) {
       const d = await api.post('/auth/register', payload);
       setToken(d.token); setUser(d.user);
     },
+    /** Сохраняет сессию после принятия приглашения / смены пароля. */
+    setSession(token, u) { setToken(token); if (u) setUser(u); },
+    setUser,
   }), [user, loading, logout]);
 
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
