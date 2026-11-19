@@ -249,6 +249,21 @@ describe('API', { skip }, () => {
         assert.equal((await api('POST', '/api/auth/register', { body: { full_name: 'Кто-то', email: 'a@corp.kz', password: 'password1' } })).status, 403);
       } finally { config.allowedEmailDomain = saved; }
     });
+    it('5b. блокировка и смена роли на employee снимают ответственного с открытых заявок', async () => {
+      await mkUser('buyer3', 'buyer');
+      const open = await newReq();
+      const closed = await newReq();
+      await api('POST', `/api/requests/${open}/assign`, { token: tokens.buyer3 });
+      await api('POST', `/api/requests/${closed}/assign`, { token: tokens.buyer3 });
+      await api('PATCH', `/api/requests/${closed}/status`, { token: tokens.buyer3, body: { status: 'rejected', comment: 'Не нужно' } });
+      assert.equal((await api('PATCH', `/api/users/${ids.buyer3}`, { token: tokens.admin, body: { role: 'employee' } })).status, 200);
+      const o = (await api('GET', `/api/requests/${open}`, { token: tokens.admin })).json;
+      assert.equal(o.assignee_id, null);
+      assert.ok(o.history.some((h) => h.event === 'assigned' && h.details.assignee_id === null));
+      const c = (await api('GET', `/api/requests/${closed}`, { token: tokens.admin })).json;
+      assert.equal(c.assignee_id, ids.buyer3); // закрытая заявка не меняется
+      assert.equal((await api('POST', `/api/requests/${open}/assign`, { token: tokens.buyer2 })).status, 200); // теперь её может взять другой
+    });
     it('6. после блокировки — 401 на следующем же запросе, вход невозможен; сам себя админ не блокирует', async () => {
       await mkUser('victim', 'employee');
       assert.equal((await api('GET', '/api/requests', { token: tokens.victim })).status, 200);

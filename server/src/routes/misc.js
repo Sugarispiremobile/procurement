@@ -80,13 +80,31 @@ usersRouter.patch('/:id', async (req, res) => {
     if (d.is_active === false) throw conflict('Нельзя заблокировать самого себя');
     if (d.role && d.role !== 'admin') throw conflict('Нельзя снять роль администратора с самого себя');
   }
-  const { rows } = await query(
-    `UPDATE users SET role = COALESCE($2, role), is_active = COALESCE($3, is_active), full_name = COALESCE($4, full_name),
-                      department_id = CASE WHEN $5::boolean THEN $6::int ELSE department_id END,
-                      token_version = token_version + CASE WHEN $3::boolean IS NOT NULL AND $3::boolean = false THEN 1 ELSE 0 END
-      WHERE id = $1 RETURNING id`,
-    [id, d.role ?? null, d.is_active ?? null, d.full_name ?? null, 'department_id' in d, d.department_id ?? null]);
-  if (!rows[0]) throw notFound('Пользователь не найден');
+  // Пользователь и снятие с заявок — в одной транзакции
+  const found = await tx(async (c) => {
+    const { rows } = await c.query(
+      `UPDATE users SET role = COALESCE($2, role), is_active = COALESCE($3, is_active), full_name = COALESCE($4, full_name),
+                        department_id = CASE WHEN $5::boolean THEN $6::int ELSE department_id END,
+                        token_version = token_version + CASE WHEN $3::boolean IS NOT NULL AND $3::boolean = false THEN 1 ELSE 0 END
+        WHERE id = $1 RETURNING id, role, is_active, full_name`,
+      [id, d.role ?? null, d.is_active ?? null, d.full_name ?? null, 'department_id' in d, d.department_id ?? null]);
+    const u = rows[0];
+    if (!u) return false;
+    // Заблокированный или ставший employee не может вести заявки: снимаем с открытых
+    if (!u.is_active || u.role === 'employee') {
+      const freed = await c.query(
+        `UPDATE requests SET assignee_id = NULL, updated_at = now()
+          WHERE assignee_id = $1 AND status <> ALL($2::text[]) RETURNING id`, [id, CLOSED]);
+      for (const r of freed.rows) {
+        await c.query(
+          `INSERT INTO status_history (request_id, event, old_status, new_status, changed_by, details) VALUES ($1, 'assigned', NULL, NULL, $2, $3)`,
+          [r.id, req.user.id, { assignee_id: null, assignee_name: null, previous_name: u.full_name, auto: true,
+            reason: u.is_active ? 'role_changed' : 'blocked' }]);
+      }
+    }
+    return true;
+  });
+  if (!found) throw notFound('Пользователь не найден');
   res.json((await query(`${USER_ROW} WHERE u.id = $1`, [id])).rows[0]);
 });
 

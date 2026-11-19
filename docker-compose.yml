@@ -8,9 +8,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-procurement}
       POSTGRES_DB: procurement
     ports:
-      - "127.0.0.1:5433:5432"   # только с этой машины, не в сеть
+      - "127.0.0.1:5432:5432"   # только с этой машины, не в сеть
     volumes:
       - pgdata:/var/lib/postgresql/data
 volumes:
   pgdata:
-
