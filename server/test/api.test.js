@@ -558,6 +558,28 @@ describe('API', { skip }, () => {
       assert.equal((await api('PATCH', `/api/requests/${own}/status`, { token: tokens.admin, body: { status: 'review' } })).status, 200);
     });
 
+    it('админ не назначает снабженца ответственным за его же заявку; себя админ назначить может', async () => {
+      const id = await newReq('buyer');
+      assert.equal((await api('POST', `/api/requests/${id}/assign`, { token: tokens.admin, body: { assignee_id: ids.buyer } })).status, 403);
+      assert.equal((await api('POST', `/api/requests/${id}/assign`, { token: tokens.admin, body: { assignee_id: ids.buyer2 } })).status, 200);
+      const own = await newReq('admin');
+      assert.equal((await api('POST', `/api/requests/${own}/assign`, { token: tokens.admin, body: { assignee_id: ids.admin } })).status, 200);
+    });
+
+    it('админ может удалить чужой файл; событие попадает в историю; остальные — 403', async () => {
+      const id = await newReq('emp');
+      const fid = (await upload(id, 'emp', 'a.pdf', PDF)).json.files[0].id;
+      assert.equal((await api('DELETE', `/api/requests/${id}/files/${fid}`, { token: tokens.buyer })).status, 403);
+      assert.equal((await api('DELETE', `/api/requests/${id}/files/${fid}`, { token: tokens.admin })).status, 204);
+      const r = await api('GET', `/api/requests/${id}`, { token: tokens.admin });
+      assert.ok(r.json.history.some((h) => h.event === 'file_deleted'));
+    });
+
+    it('регистрация с несуществующим подразделением → 400', async () => {
+      const r = await api('POST', '/api/auth/register', { body: { full_name: 'Новый Сотрудник', email: 'dep@corp.kz', password: 'password1', department_id: 999999 } });
+      assert.equal(r.status, 400);
+    });
+
     it('BUG-009: значения вне диапазона → 400/404, а не 500; бюджет не округляется молча', async () => {
       const post = (extra) => api('POST', '/api/requests', { token: tokens.emp, body: goodReq(extra) });
       assert.equal((await post({ budget: 1e12 })).status, 400);
