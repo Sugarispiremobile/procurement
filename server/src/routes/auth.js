@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import { query, tx } from '../db.js';
 import { config } from '../config.js';
 import { authenticate, signToken, hashToken } from '../auth.js';
-import { conflict, forbidden, HttpError, notFound, unauthorized } from '../errors.js';
+import { badRequest, conflict, forbidden, HttpError, notFound, unauthorized } from '../errors.js';
 import { registerSchema, loginSchema, acceptInviteSchema, changePasswordSchema, meSchema } from '../schemas.js';
 
 const publicUser = (u) => ({
@@ -33,7 +33,7 @@ export default function authRoutes(limiters) {
     }
     if (data.department_id) {
       const d = await query('SELECT 1 FROM departments WHERE id = $1 AND NOT is_archived', [data.department_id]);
-      if (!d.rowCount) throw conflict('Подразделение не найдено');
+      if (!d.rowCount) throw badRequest('Подразделение не найдено');
     }
     const hash = await bcrypt.hash(data.password, 10);
     const { rows } = await query(
