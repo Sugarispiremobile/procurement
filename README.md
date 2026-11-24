@@ -34,7 +34,7 @@ CI (GitHub Actions): lint → тесты сервера с PostgreSQL → тес
 `cp .env.prod.example .env`, заполнить, затем `docker compose -f docker-compose.prod.yml up -d --build` (Caddy с HTTPS, БД наружу не публикуется, ежедневные бэкапы). Подробно — [docs/admin-guide.md](docs/admin-guide.md), восстановление — [deploy/restore.md](deploy/restore.md).
 
 ## Документы
-[ТЗ и раздел «Версия 1.1»](docs/spec.md) · [Конкуренты](docs/competitors.md) · [Инструкция администратора](docs/admin-guide.md) · [Инструкция пользователя](docs/user-guide.md) · [CHANGELOG](CHANGELOG.md)
+[ТЗ: цели, роли, сценарии](docs/spec.md) · [Архитектура и правила](docs/architecture.md) · [Конкуренты](docs/competitors.md) · [Инструкция администратора](docs/admin-guide.md) · [Инструкция пользователя](docs/user-guide.md) · [CHANGELOG](CHANGELOG.md)
 
 ## Настройка
 Все переменные описаны в `server/.env.example` (домен регистрации, `TRUST_PROXY`, SMTP, валюта `CURRENCY`, часовой пояс `APP_TZ`, срок приглашений).
