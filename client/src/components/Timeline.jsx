@@ -6,6 +6,7 @@ const eventText = (h) => {
     if (!d.assignee_name) return `снял(а) ответственного${d.previous_name ? ` (${d.previous_name})` : ''}`;
     return `${d.auto ? 'ответственным стал(а) (автоматически) ' : 'назначил(а) ответственным '}${d.assignee_name}`;
   }
+  if (h.event === 'file_deleted') return `удалил(а) файл «${h.details?.file_name ?? ''}»`;
   if (h.event === 'edited') {
     const fields = (h.details?.changed ?? []).map((k) => FIELD_NAMES[k] ?? k).join(', ');
     return `изменил(а) заявку: ${fields}`;
