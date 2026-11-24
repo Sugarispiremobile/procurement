@@ -1,16 +1,16 @@
 # Multi-stage: сборка клиента -> образ сервера, который раздаёт и API, и client/dist
-FROM node:20-alpine AS client
+FROM node:22-alpine AS client
 WORKDIR /build/client
 COPY client/package*.json ./
-RUN npm install
+RUN npm ci
 COPY client/ ./
 RUN npm run build
 
-FROM node:20-alpine
+FROM node:22-alpine
 ENV NODE_ENV=production CLIENT_DIST=/app/client-dist UPLOAD_DIR=/data/uploads
 WORKDIR /app/server
 COPY server/package*.json ./
-RUN npm install --omit=dev
+RUN npm ci --omit=dev
 COPY server/ ./
 COPY --from=client /build/client/dist /app/client-dist
 RUN mkdir -p /data/uploads && chown -R node:node /data /app

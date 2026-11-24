@@ -20,7 +20,7 @@ function Stats() {
 
 const LIMIT = 20;
 
-/** Очередь заявок. Все фильтры живут в адресной строке (B4): ссылкой можно поделиться, «назад» работает. */
+/** Очередь заявок. Все фильтры живут в адресной строке (B4): ссылкой можно поделиться, каждое действие — отдельная запись истории (набор текста поиска историю не засоряет). */
 export default function RequestsPage() {
   const { user } = useAuth();
   const notify = useToast();
@@ -34,17 +34,21 @@ export default function RequestsPage() {
   const [departments, setDepartments] = useState([]);
 
   const page = Math.max(1, Number(get('page')) || 1);
-  const update = (patch, keepPage = false) => {
+  const update = (patch, { keepPage = false, replace = false } = {}) => {
     const next = new URLSearchParams(sp);
     for (const [k, v] of Object.entries(patch)) (v === '' || v == null || v === false ? next.delete(k) : next.set(k, v === true ? '1' : v));
     if (!keepPage) next.delete('page');
-    setSp(next, { replace: true });
+    setSp(next, { replace });
   };
+
+  // Поле поиска следует за адресной строкой (переход по ссылке с другим ?q=, «назад»)
+  const urlQ = get('q');
+  useEffect(() => { setQ((cur) => (cur.trim() === urlQ ? cur : urlQ)); }, [urlQ]);
 
   // Поиск — с задержкой, чтобы не слать запрос на каждую букву
   useEffect(() => {
     if (q.trim() === get('q')) return undefined;
-    const t = setTimeout(() => update({ q: q.trim() }), 300);
+    const t = setTimeout(() => update({ q: q.trim() }, { replace: true }), 300);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q]);
@@ -117,7 +121,7 @@ export default function RequestsPage() {
             <label className="datef">по <input type="date" aria-label="Создана по" value={get('to')} min={get('from') || undefined} onChange={(e) => update({ to: e.target.value })} /></label>
           </div>
         )}
-        {filtersOn && <p className="meta"><button type="button" className="linkbtn" onClick={() => { setQ(''); setSp({}, { replace: true }); }}>Сбросить все фильтры</button></p>}
+        {filtersOn && <p className="meta"><button type="button" className="linkbtn" onClick={() => { setQ(''); setSp({}); }}>Сбросить все фильтры</button></p>}
 
         {error && <p className="urgent" role="alert">{error}</p>}
         {!data && !error && <p className="empty">Загрузка…</p>}
@@ -131,9 +135,9 @@ export default function RequestsPage() {
         {data && data.total > 0 && (
           <div className="pager" role="navigation" aria-label="Страницы">
             <span className="meta">Показано {data.requests.length} из {data.total}</span>
-            <button className="btn ghost sm" type="button" disabled={page <= 1} onClick={() => update({ page: page - 1 }, true)}>← Назад</button>
+            <button className="btn ghost sm" type="button" disabled={page <= 1} onClick={() => update({ page: page - 1 }, { keepPage: true })}>← Назад</button>
             <span className="meta">Стр. {page} из {pages}</span>
-            <button className="btn ghost sm" type="button" disabled={page >= pages} onClick={() => update({ page: page + 1 }, true)}>Вперёд →</button>
+            <button className="btn ghost sm" type="button" disabled={page >= pages} onClick={() => update({ page: page + 1 }, { keepPage: true })}>Вперёд →</button>
           </div>
         )}
       </section>

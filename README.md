@@ -1,15 +1,15 @@
 # Заявки в отдел снабжения — версия 1.1
 
 Внутренний сервис: сотрудники подают заявки на закупку, снабжение ведёт их по статусам (ответственный, переписка, вложения), администратор управляет доступом и справочниками.
-Стек: React 19 + Vite · Node.js 20 + Express 5 · PostgreSQL 16 · zod · JWT.
+Стек: React 19 + Vite · Node.js 22 + Express 5 · PostgreSQL 16 · zod · JWT.
 
 ## Быстрый старт (разработка)
 ```bash
-cd server && npm install && npm run setup     # .env, PostgreSQL через Docker, миграции, демо-данные
+cd server && npm install && npm run setup     # .env, PostgreSQL через Docker, миграции
 npm run dev                                   # API: http://localhost:3000
 cd ../client && npm install && npm run dev    # UI:  http://localhost:5173
 ```
-Пароль администратора (`admin@example.com`) генерируется случайно и печатается один раз при `setup`. Демо-пользователи (`SEED_DEMO=1`): `buyer@example.com`, `anna@example.com`, пароль `demo12345`.
+Пароль администратора (`admin@example.com`) генерируется случайно и печатается один раз при `setup`. Демо-пользователи по умолчанию **не создаются** (`SEED_DEMO=0` в `.env.example`). Для разработки поставьте в `server/.env` `SEED_DEMO=1` и выполните `npm run db:seed`: появятся `buyer@example.com`, `anna@example.com` (пароль `demo12345`). В `NODE_ENV=production` демо-данные не создаются никогда.
 
 ## Тесты и качество
 ```bash

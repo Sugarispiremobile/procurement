@@ -22,6 +22,7 @@ const serverDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 
 export const config = {
   isProd,
+  statementTimeoutMs: Number(process.env.STATEMENT_TIMEOUT_MS) || 60_000, // защита пула от тяжёлых запросов
   port: Number(process.env.PORT) || 3000,
   databaseUrl: required('DATABASE_URL'),
   jwtSecret,

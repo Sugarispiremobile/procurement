@@ -70,7 +70,9 @@ try {
       console.log('ADMIN_EMAIL / ADMIN_PASSWORD не заданы — администратор не создан.');
     }
 
-    if (process.env.SEED_DEMO === '1') {
+    if (process.env.SEED_DEMO === '1' && process.env.NODE_ENV === 'production') {
+      console.warn('SEED_DEMO=1 проигнорирован: демо-пользователи с известным паролем не создаются при NODE_ENV=production.');
+    } else if (process.env.SEED_DEMO === '1') {
       const anna = await upsertUser(c, { name: 'Анна Лебедева', email: 'anna@example.com', password: 'demo12345', role: 'employee', dept: 'Бухгалтерия' });
       const sergey = await upsertUser(c, { name: 'Сергей Орлов', email: 'sergey@example.com', password: 'demo12345', role: 'employee', dept: 'ИТ' });
       const buyer = await upsertUser(c, { name: 'Мария Снабженцева', email: 'buyer@example.com', password: 'demo12345', role: 'buyer', dept: 'Администрация' });

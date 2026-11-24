@@ -18,7 +18,7 @@ export default function Timeline({ comments, history }) {
   const rows = [
     ...comments.map((c) => ({ key: `c${c.id}`, at: c.created_at, kind: 'comment', c })),
     ...history.map((h) => ({ key: `h${h.id}`, at: h.changed_at, kind: 'event', h })),
-  ].sort((a, b) => new Date(a.at) - new Date(b.at));
+  ].sort((a, b) => new Date(a.at) - new Date(b.at) || (a.kind === 'event' ? 0 : 1) - (b.kind === 'event' ? 0 : 1)); // при равном времени событие раньше комментария
 
   if (!rows.length) return <p className="meta">Пока ничего нет.</p>;
   return (

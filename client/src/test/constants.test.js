@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cfg, fmtMoney, fmtSize, isOverdue, todayStr, NEXT } from '../constants.js';
+import { cfg, fmtMoney, fmtSize, fmtDT, fmtDay, isOverdue, todayStr, NEXT } from '../constants.js';
 
 describe('constants', () => {
   it('сумма показывается в валюте из конфигурации', () => {
@@ -29,5 +29,15 @@ describe('constants', () => {
 
   it('из закрытых статусов переходов нет', () => {
     for (const s of ['done', 'rejected', 'cancelled']) expect(NEXT[s]).toEqual([]);
+  });
+
+  it('BUG-014: нулевая сумма — «0 ₸», отсутствие суммы — «—»', () => {
+    expect(fmtMoney(0)).toBe('0 ₸');
+    expect(fmtMoney(undefined)).toBe('—');
+  });
+
+  it('BUG-015: даты показываются в часовом поясе приложения (Asia/Almaty), а не в UTC', () => {
+    expect(fmtDay('2026-11-16T22:30:00Z')).toBe('17.11.2026');
+    expect(fmtDT('2026-11-16T22:30:00Z')).toContain('17.11.2026');
   });
 });

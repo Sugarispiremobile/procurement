@@ -55,7 +55,7 @@ services:
       - caddy_config:/config
 
   backup:
-    image: postgres:16
+    build: { context: ./deploy, dockerfile: backup.Dockerfile }
     restart: unless-stopped
     depends_on:
       db: { condition: service_healthy }
@@ -64,11 +64,18 @@ services:
       PGUSER: procurement
       PGPASSWORD: ${POSTGRES_PASSWORD}
       PGDATABASE: procurement
+      BACKUP_HOUR: ${BACKUP_HOUR:-03}
+      BACKUP_UPLOAD_CMD: ${BACKUP_UPLOAD_CMD:-}
+      BACKUP_ALERT_URL: ${BACKUP_ALERT_URL:-}
+      BACKUP_OK_URL: ${BACKUP_OK_URL:-}
     volumes:
       - ./backups:/backups
       - uploads:/uploads:ro
       - ./deploy/backup.sh:/backup.sh:ro
-    entrypoint: ["/bin/bash", "-c", "while true; do bash /backup.sh; sleep 86400; done"]
+      - ./deploy/verify-restore.sh:/verify-restore.sh:ro
+      - ./deploy/backup-loop.sh:/backup-loop.sh:ro
+      - ./deploy/ssh:/root/.ssh:ro
+    entrypoint: ["/bin/bash", "/backup-loop.sh"]
 
 volumes:
   pgdata:

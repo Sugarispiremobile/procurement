@@ -20,7 +20,7 @@ export function errorHandler(err, req, res, next) {
   if (err?.type === 'entity.parse.failed') return res.status(400).json({ error: 'Некорректный JSON' });
   if (err?.type === 'entity.too.large') return res.status(413).json({ error: 'Слишком большой запрос' });
   // F1: ошибки значений PostgreSQL — это 400, а не 500
-  if (['22007', '22008', '22P02'].includes(err?.code)) return res.status(400).json({ error: 'Некорректное значение в запросе' });
+  if (['22007', '22008', '22P02', '22003'].includes(err?.code)) return res.status(400).json({ error: 'Некорректное значение в запросе' });
   if (err?.code === '23503') return res.status(400).json({ error: 'Указана несуществующая связанная запись' });
   if (err?.code === '23505') return res.status(409).json({ error: 'Такая запись уже существует' });
   if (req.log) req.log.error({ err, userId: req.user?.id ?? null }, 'unhandled error'); else console.error(err);

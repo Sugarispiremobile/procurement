@@ -18,6 +18,9 @@ import {
 
 const router = Router();
 
+// BUG-003: разделение обязанностей — собственную заявку снабженец не ведёт (администратор — исключение)
+const SELF_MSG = 'Собственную заявку не может вести её автор — её обработает другой сотрудник снабжения';
+
 const CLOSED_SQL = CLOSED.map((s) => `'${s}'`).join(', ');
 const OVERDUE_SQL = `COALESCE(r.due_date < CURRENT_DATE AND r.status NOT IN (${CLOSED_SQL}), false)`;
 
@@ -41,7 +44,7 @@ const FROM_COUNT = `FROM requests r JOIN users u ON u.id = r.author_id JOIN cate
 
 const parseId = (v, msg = 'Заявка не найдена') => {
   const id = Number(v);
-  if (!Number.isInteger(id) || id < 1) throw notFound(msg);
+  if (!Number.isInteger(id) || id < 1 || id > 2147483647) throw notFound(msg);
   return id;
 };
 const likeEscape = (s) => s.replace(/[\\%_]/g, (m) => `\\${m}`);
@@ -142,6 +145,16 @@ const csvCell = (v) => {
 
 router.get('/export.csv', requireRole('buyer', 'admin'), async (req, res) => {
   const f = parseList(req.query);
+  try {
+    await streamCsv(req, res, f);
+  } catch (e) {
+    // R2: заголовки уже отправлены — обрываем соединение, чтобы файл не выглядел полным
+    if (res.headersSent) { req.log?.error({ err: e }, 'csv export failed'); res.destroy(); return; }
+    throw e;
+  }
+});
+
+async function streamCsv(req, res, f) {
   res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="zayavki-${todayStr()}.csv"` });
   const line = (cells) => `${cells.map(csvCell).join(';')}\r\n`;
   res.write('\ufeff' + line(['№', 'Статус', 'Срочность', 'Автор', 'Подразделение', 'Категория', 'Создана', 'Нужно к', 'Сумма', 'Ответственный', 'Позиции', 'Обоснование', 'Последний комментарий']));
@@ -158,12 +171,13 @@ router.get('/export.csv', requireRole('buyer', 'admin'), async (req, res) => {
         r.items.map((i) => `${i.name} — ${i.quantity} ${i.unit}`).join('; '), r.justification, r.last_comment ?? '',
       ]);
     }
-    if (chunk && !res.write(chunk) && !res.destroyed) await once(res, 'drain');
+    // R1: если клиент отключился, ждём не только 'drain', но и 'close' — иначе обработчик зависнет
+    if (chunk && !res.write(chunk) && !res.destroyed) await Promise.race([once(res, 'drain'), once(res, 'close')]);
     if (res.destroyed || rows.length < BATCH) break;
     last = rows.at(-1).id;
   }
   res.end();
-});
+}
 
 // ---------- создание (любая роль) ----------
 router.post('/', async (req, res) => {
@@ -248,10 +262,11 @@ router.post('/:id/assign', requireRole('buyer', 'admin'), async (req, res) => {
   let assigneeName = null;
   await tx(async (c) => {
     const { rows } = await c.query(
-      `SELECT r.status, r.assignee_id, a.full_name AS assignee_name FROM requests r LEFT JOIN users a ON a.id = r.assignee_id WHERE r.id = $1 FOR UPDATE OF r`, [id]);
+      `SELECT r.status, r.assignee_id, r.author_id, a.full_name AS assignee_name FROM requests r LEFT JOIN users a ON a.id = r.assignee_id WHERE r.id = $1 FOR UPDATE OF r`, [id]);
     const cur = rows[0];
     if (!cur) throw notFound('Заявка не найдена');
     if (isClosed(cur.status)) throw conflict('Заявка закрыта');
+    if (cur.author_id === req.user.id && !isAdmin) throw forbidden(SELF_MSG);
     if (!isAdmin && cur.assignee_id && cur.assignee_id !== req.user.id) throw forbidden(`Заявку ведёт ${cur.assignee_name}`);
     if (target !== null) {
       const t = (await c.query(`SELECT full_name FROM users WHERE id = $1 AND is_active AND role IN ('buyer', 'admin')`, [target])).rows[0];
@@ -280,6 +295,7 @@ router.patch('/:id/status', requireRole('buyer', 'admin'), async (req, res) => {
     if (!cur) throw notFound('Заявка не найдена');
     authorId = cur.author_id;
     if (isClosed(cur.status)) throw conflict('Заявка закрыта — менять статус нельзя');
+    if (cur.author_id === req.user.id && req.user.role !== 'admin') throw forbidden(SELF_MSG);
     if (req.user.role !== 'admin' && cur.assignee_id && cur.assignee_id !== req.user.id) throw forbidden(`Заявку ведёт ${cur.assignee_name}`);
     if (!canMove(cur.status, data.status)) throw conflict(`Переход «${STATUS_RU[cur.status]} → ${STATUS_RU[data.status]}» недопустим`);
     const autoAssign = cur.status === 'new' && data.status === 'review' && !cur.assignee_id;
@@ -310,8 +326,13 @@ router.post('/:id/comments', async (req, res) => {
   const { body } = commentSchema.parse(req.body);
   const r = await visible({ query }, id, req.user);
   await addComment({ query }, id, req.user.id, 'comment', body);
-  const to = r.author_id === req.user.id ? r.assignee_id : r.author_id;
-  if (to && to !== req.user.id) notifyUsers([to], `Новый комментарий к заявке №${id}`, `${req.user.full_name}: ${body}\n${link(id)}`);
+  // BUG-025: автор пишет ответственному, а без ответственного — всем снабженцам; снабжение пишет автору и ответственному
+  let to;
+  if (r.author_id === req.user.id) {
+    to = r.assignee_id ? [r.assignee_id] : (await query(`SELECT id FROM users WHERE role = 'buyer' AND is_active`)).rows.map((u) => u.id);
+  } else to = [r.author_id, r.assignee_id];
+  to = to.filter((u) => u && u !== req.user.id);
+  if (to.length) notifyUsers(to, `Новый комментарий к заявке №${id}`, `${req.user.full_name}: ${body}\n${link(id)}`);
   res.status(201).json({ comments: (await loadOne({ query }, id, req.user)).comments });
 });
 
@@ -319,7 +340,7 @@ router.post('/:id/comments', async (req, res) => {
 // Доступ проверяется ДО чтения тела, чтобы посторонние не заставляли сервер принимать 10 МБ.
 const guardUpload = async (req, res, next) => {
   const r = await visible({ query }, parseId(req.params.id), req.user);
-  if (req.user.role === 'employee' && isClosed(r.status)) throw conflict('Заявка закрыта — файлы добавлять нельзя');
+  if (isClosed(r.status)) throw conflict('Заявка закрыта — файлы добавлять нельзя');
   next();
 };
 const fileBody = raw({ type: () => true, limit: MAX_FILE_BYTES });
@@ -343,7 +364,7 @@ router.post('/:id/files', guardUpload, fileBody, async (req, res) => {
     await tx(async (c) => {
       const { rows } = await c.query('SELECT status FROM requests WHERE id = $1 FOR UPDATE', [id]);
       if (!rows[0]) throw notFound('Заявка не найдена');
-      if (req.user.role === 'employee' && isClosed(rows[0].status)) throw conflict('Заявка закрыта — файлы добавлять нельзя');
+      if (isClosed(rows[0].status)) throw conflict('Заявка закрыта — файлы добавлять нельзя');
       const n = (await c.query('SELECT count(*)::int AS n FROM request_files WHERE request_id = $1', [id])).rows[0].n;
       if (n >= MAX_FILES_PER_REQUEST) throw conflict(`К заявке можно прикрепить не более ${MAX_FILES_PER_REQUEST} файлов`);
       await c.query(

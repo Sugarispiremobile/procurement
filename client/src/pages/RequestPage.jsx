@@ -37,7 +37,9 @@ export default function RequestPage() {
   const closed = ['done', 'rejected', 'cancelled'].includes(r.status);
   const mine = r.assignee_id === user.id;
   // B3: менять статус может ответственный или админ; пока никого нет — любой снабженец
-  const canMove = isBuyer && !closed && (isAdmin || !r.assignee_id || mine);
+  // BUG-003: свою заявку снабженец не ведёт (сервер вернёт 403); администратор — исключение
+  const ownLocked = isOwner && !isAdmin;
+  const canMove = isBuyer && !closed && !ownLocked && (isAdmin || !r.assignee_id || mine);
 
   const run = async (fn, okMsg) => {
     setBusy(true);
@@ -88,7 +90,7 @@ export default function RequestPage() {
         <h3 style={{ fontSize: 13, marginTop: 20 }}>Ответственный</h3>
         <div className="assignee">
           <span>{r.assignee_name ? <b>{r.assignee_name}</b> : <em className="meta">не назначен</em>}</span>
-          {isBuyer && !closed && !r.assignee_id && <button className="btn sm" type="button" disabled={busy} onClick={() => assign()}>Взять в работу</button>}
+          {isBuyer && !closed && !ownLocked && !r.assignee_id && <button className="btn sm" type="button" disabled={busy} onClick={() => assign()}>Взять в работу</button>}
           {isBuyer && !closed && r.assignee_id && !mine && !isAdmin && <span className="meta">Заявку ведёт {r.assignee_name}</span>}
           {isAdmin && !closed && (
             <select aria-label="Назначить ответственного" value={r.assignee_id ?? ''} disabled={busy} onChange={(e) => assign(e.target.value ? Number(e.target.value) : null)}>
@@ -104,7 +106,7 @@ export default function RequestPage() {
         <p style={{ margin: '6px 0 0' }}>{r.justification}</p>
 
         <Files requestId={r.id} files={r.files} onChange={(files) => setR({ ...r, files })}
-          canUpload={isBuyer || (isOwner && !closed)} meId={user.id} closed={closed} />
+          canUpload={!closed && (isBuyer || isOwner)} meId={user.id} closed={closed} />
 
         {isOwner && r.status === 'new' && (
           <div className="acts">
@@ -113,7 +115,8 @@ export default function RequestPage() {
           </div>
         )}
 
-        {isBuyer && !closed && !canMove && <p className="meta">Менять статус может только ответственный ({r.assignee_name}) или администратор.</p>}
+        {isBuyer && !closed && ownLocked && <p className="meta">Свою заявку обрабатывает другой сотрудник снабжения или администратор.</p>}
+        {isBuyer && !closed && !ownLocked && !canMove && <p className="meta">Менять статус может только ответственный ({r.assignee_name}) или администратор.</p>}
         {canMove && (
           <div className="acts">
             {NEXT[r.status].filter((k) => k !== 'rejected').map((k) => (

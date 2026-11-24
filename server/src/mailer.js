@@ -20,7 +20,10 @@ async function deliver({ to, subject, text }) {
   if (!t) {
     outbox.push({ to, subject, text, at: new Date() });
     if (outbox.length > 200) outbox.shift();
-    if (config.logLevel !== 'silent') console.log(`[mail] → ${to} | ${subject}\n${text}`);
+    if (config.logLevel !== 'silent') {
+      // в production тело письма (ссылки-приглашения/сброса) в лог не пишем
+      console.log(config.isProd ? `[mail] → ${to} | ${subject} (SMTP не настроен, текст не логируется)` : `[mail] → ${to} | ${subject}\n${text}`);
+    }
     return;
   }
   await t.sendMail({ from: config.smtp.from, to, subject, text });

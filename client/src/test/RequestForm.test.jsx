@@ -5,14 +5,15 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 const api = { get: vi.fn(), post: vi.fn(), put: vi.fn() };
 vi.mock('../api.js', () => ({ api }));
-vi.mock('../context.jsx', () => ({ useToast: () => () => {} }));
+vi.mock('../context.jsx', () => ({ useToast: () => () => {}, useAuth: () => ({ user: { id: 7 } }) }));
 
 const { default: RequestForm } = await import('../pages/RequestForm.jsx');
 
-const renderForm = () => render(
-  <MemoryRouter initialEntries={['/requests/new']}>
+const renderForm = (path = '/requests/new') => render(
+  <MemoryRouter initialEntries={[path]}>
     <Routes>
       <Route path="/requests/new" element={<RequestForm />} />
+      <Route path="/requests/:id/edit" element={<RequestForm />} />
       <Route path="/requests/:id" element={<p>карточка заявки</p>} />
     </Routes>
   </MemoryRouter>,
@@ -59,5 +60,30 @@ describe('RequestForm', () => {
   it('валюта берётся из конфигурации', async () => {
     renderForm();
     expect(await screen.findByText(/Ориентировочная сумма, ₸/)).toBeInTheDocument();
+  });
+
+  it('BUG-016: архивная категория заявки остаётся выбранной, даже если заявка пришла раньше категорий', async () => {
+    api.get.mockImplementation((url) => (url === '/categories'
+      ? new Promise((res) => setTimeout(() => res({ items: [{ id: 1, name: 'Канцелярия' }] }), 30))
+      : Promise.resolve({ id: 5, status: 'new', author_id: 7, category_id: 9, category: 'Старая', is_urgent: false, due_date: null, budget: null, justification: 'x', items: [{ name: 'a', quantity: 1, unit: 'шт.' }] })));
+    renderForm('/requests/5/edit');
+    const select = await screen.findByLabelText('Категория');
+    expect(select).toHaveValue('9');
+    expect(screen.getByRole('option', { name: 'Старая (архив)' })).toBeInTheDocument();
+  });
+
+  it('BUG-016: чужая или не «новая» заявка — только сообщение, без формы', async () => {
+    api.get.mockImplementation((url) => Promise.resolve(url === '/categories' ? { items: [{ id: 1, name: 'К' }] }
+      : { id: 5, status: 'review', author_id: 7, category_id: 1, category: 'К', items: [] }));
+    renderForm('/requests/5/edit');
+    expect(await screen.findByText(/только в статусе «Новая»/)).toBeInTheDocument();
+    expect(screen.queryByLabelText('Категория')).toBeNull();
+  });
+
+  it('BUG-013: пустой список категорий — понятное сообщение, отправка заблокирована', async () => {
+    api.get.mockResolvedValue({ items: [] });
+    renderForm();
+    expect(await screen.findByText(/Нет доступных категорий/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Отправить заявку' })).toBeDisabled();
   });
 });

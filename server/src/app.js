@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
 import { authenticate, createLimiters } from './auth.js';
+import { query } from './db.js';
 import { errorHandler, HttpError } from './errors.js';
 import authRoutes from './routes/auth.js';
 import requestRoutes from './routes/requests.js';
@@ -27,7 +28,7 @@ export function createApp() {
   app.use(pinoHttp({
     logger,
     genReqId: (req) => req.headers['x-request-id'] || crypto.randomUUID(),
-    serializers: { req: (r) => ({ id: r.id, method: r.method, url: r.url.split('?')[0] }), res: (r) => ({ statusCode: r.statusCode }) },
+    serializers: { req: (r) => ({ id: r.id, method: r.method, url: r.url.split('?')[0].replace(/\/invite\/[^/]+/, '/invite/***') }), res: (r) => ({ statusCode: r.statusCode }) },
     // пользователь становится известен только после authenticate, поэтому добавляем его при завершении запроса
     customSuccessObject: (req, res, val) => ({ ...val, userId: req.user?.id ?? null }),
     customErrorObject: (req, res, err, val) => ({ ...val, userId: req.user?.id ?? null }),
@@ -51,7 +52,9 @@ export function createApp() {
   app.use(express.json({ limit: '100kb' }));
 
   const limiters = createLimiters();
-  app.get('/api/health', (req, res) => res.json({ ok: true }));
+  app.get('/api/health', async (req, res) => {
+    try { await query({ text: 'SELECT 1', query_timeout: 2000 }); res.json({ ok: true }); } catch { res.status(503).json({ ok: false }); }
+  });
   app.get('/api/config', (req, res) =>
     res.json({ currency: config.currency, timeZone: config.timeZone, registrationOpen: Boolean(config.allowedEmailDomain), domain: config.allowedEmailDomain || null }));
   app.use('/api/auth', authRoutes(limiters));
@@ -66,7 +69,7 @@ export function createApp() {
   const dist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), process.env.CLIENT_DIST || '../../client/dist');
   if (fs.existsSync(dist)) {
     app.use(express.static(dist));
-    app.use((req, res, next) => (req.method === 'GET' ? res.sendFile(path.join(dist, 'index.html')) : next()));
+    app.use((req, res, next) => (['GET', 'HEAD'].includes(req.method) ? res.sendFile(path.join(dist, 'index.html')) : next()));
   }
 
   app.use(errorHandler);

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api.js';
-import { useToast } from '../context.jsx';
+import { useAuth, useToast } from '../context.jsx';
 import { cfg, todayStr } from '../constants.js';
 
 const emptyItem = () => ({ name: '', quantity: 1, unit: 'шт.' });
@@ -10,31 +10,36 @@ export default function RequestForm() {
   const { id } = useParams(); // есть id — редактирование
   const nav = useNavigate();
   const notify = useToast();
+  const { user } = useAuth();
+  const [blocked, setBlocked] = useState('');
   const [categories, setCategories] = useState([]);
-  const [loaded, setLoaded] = useState(!id);
+  const [loaded, setLoaded] = useState(false);
   const [orig, setOrig] = useState(null);
   const [f, setF] = useState({ category_id: '', is_urgent: false, due_date: '', budget: '', justification: '' });
   const [items, setItems] = useState([emptyItem()]);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
 
+  // BUG-016: категории и заявка грузятся вместе, затем объединяются — «(архив)» не затирается
   useEffect(() => {
-    api.get('/categories').then((d) => {
-      setCategories(d.items);
-      setF((p) => (p.category_id ? p : { ...p, category_id: d.items[0]?.id ?? '' }));
-    }).catch((e) => setErr(e.full));
-  }, []);
-
-  useEffect(() => {
-    if (!id) return;
-    api.get(`/requests/${id}`).then((r) => {
-      if (r.status !== 'new') { setErr('Заявку можно менять только в статусе «Новая»'); return; }
-      setOrig(r);
-      setCategories((cs) => (cs.some((c) => c.id === r.category_id) ? cs : [...cs, { id: r.category_id, name: `${r.category} (архив)` }]));
-      setF({ category_id: r.category_id, is_urgent: r.is_urgent, due_date: r.due_date ?? '', budget: r.budget ?? '', justification: r.justification });
-      setItems(r.items.map(({ name, quantity, unit }) => ({ name, quantity, unit })));
-    }).catch((e) => setErr(e.full)).finally(() => setLoaded(true));
-  }, [id]);
+    let live = true;
+    Promise.all([api.get('/categories'), id ? api.get(`/requests/${id}`) : null]).then(([c, r]) => {
+      if (!live) return;
+      let cats = c.items;
+      if (!r) {
+        setF((p) => (p.category_id ? p : { ...p, category_id: cats[0]?.id ?? '' }));
+      } else {
+        if (r.author_id !== user.id) { setBlocked('Редактировать заявку может только её автор'); return; }
+        if (r.status !== 'new') { setBlocked('Заявку можно менять только в статусе «Новая»'); return; }
+        if (!cats.some((x) => x.id === r.category_id)) cats = [...cats, { id: r.category_id, name: `${r.category} (архив)` }];
+        setOrig(r);
+        setF({ category_id: r.category_id, is_urgent: r.is_urgent, due_date: r.due_date ?? '', budget: r.budget ?? '', justification: r.justification });
+        setItems(r.items.map(({ name, quantity, unit }) => ({ name, quantity, unit })));
+      }
+      setCategories(cats);
+    }).catch((e) => live && setBlocked(e.status === 404 ? 'Заявка не найдена' : e.full)).finally(() => live && setLoaded(true));
+    return () => { live = false; };
+  }, [id, user.id]);
 
   const setItem = (i, k, v) => setItems(items.map((it, j) => (j === i ? { ...it, [k]: v } : it)));
 
@@ -62,6 +67,7 @@ export default function RequestForm() {
   };
 
   if (!loaded) return <p className="empty">Загрузка…</p>;
+  if (blocked) return <div className="panel"><h2>{blocked}</h2><Link to={id ? `/requests/${id}` : '/requests'}>Назад</Link></div>;
 
   return (
     <form className="panel" onSubmit={submit}>
@@ -104,9 +110,10 @@ export default function RequestForm() {
           <textarea id="why" maxLength={1000} placeholder="Зачем это нужно и что будет без закупки" value={f.justification} onChange={(e) => setF({ ...f, justification: e.target.value })} />
         </div>
       </div>
+      {categories.length === 0 && <p className="urgent" role="alert">Нет доступных категорий — обратитесь к администратору.</p>}
       <p className="urgent" role="alert" style={{ margin: '10px 0 0' }}>{err}</p>
       <div className="btnrow">
-        <button className="btn" disabled={busy}>{id ? 'Сохранить изменения' : 'Отправить заявку'}</button>
+        <button className="btn" disabled={busy || categories.length === 0}>{id ? 'Сохранить изменения' : 'Отправить заявку'}</button>
         <Link className="btn ghost" to={id ? `/requests/${id}` : '/requests'}>Отмена</Link>
       </div>
     </form>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { useAuth, useToast } from '../context.jsx';
-import { ROLES, fmtDate } from '../constants.js';
+import { ROLES, fmtDay } from '../constants.js';
 
 function InviteBox({ invite, onClose }) {
   const notify = useToast();
@@ -93,24 +93,24 @@ export default function AdminUsers() {
                 const self = u.id === me.id;
                 return (
                   <tr key={u.id}>
-                    <td>{u.full_name}</td><td>{u.email}</td>
-                    <td>
+                    <td data-label="Имя">{u.full_name}</td><td data-label="Email">{u.email}</td>
+                    <td data-label="Подразделение">
                       <select value={u.department_id ?? ''} aria-label={`Подразделение: ${u.full_name}`} onChange={(e) => patch(u, { department_id: e.target.value ? Number(e.target.value) : null }, 'Подразделение изменено')}>
                         <option value="">—</option>{departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                       </select>
                     </td>
-                    <td>{fmtDate(u.created_at.slice(0, 10))}</td>
-                    <td>
+                    <td data-label="Создан">{fmtDay(u.created_at)}</td>
+                    <td data-label="Роль">
                       <select value={u.role} aria-label={`Роль: ${u.full_name}`} disabled={self} onChange={(e) => patch(u, { role: e.target.value }, `${u.full_name}: ${ROLES[e.target.value]}`)}>
                         {Object.entries(ROLES).map(([k, t]) => <option key={k} value={k}>{t}</option>)}
                       </select>
                     </td>
-                    <td>{status(u)}</td>
+                    <td data-label="Статус">{status(u)}</td>
                     <td className="rowacts">
                       {!self && (u.is_active
                         ? <button className="btn danger sm" type="button" onClick={() => confirm(`Заблокировать ${u.full_name}?`) && patch(u, { is_active: false }, 'Пользователь заблокирован')}>Заблокировать</button>
                         : <button className="btn ghost sm" type="button" onClick={() => patch(u, { is_active: true }, 'Пользователь разблокирован')}>Разблокировать</button>)}
-                      <button className="btn ghost sm" type="button" onClick={() => reset(u)}>Сбросить пароль</button>
+                      {!self && <button className="btn ghost sm" type="button" onClick={() => reset(u)}>Сбросить пароль</button>}
                     </td>
                   </tr>
                 );

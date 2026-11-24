@@ -39,4 +39,14 @@ describe('Timeline', () => {
     render(<Timeline comments={[]} history={[]} />);
     expect(screen.getByText('Пока ничего нет.')).toBeInTheDocument();
   });
+
+  it('BUG-018: при равном времени событие «→ Отклонена» стоит раньше причины отклонения', () => {
+    const t = '2026-11-17T12:00:00Z';
+    render(<Timeline
+      comments={[{ id: 9, kind: 'rejection', body: 'Нет бюджета', created_at: t, author_id: 2, author_name: 'Мария', author_role: 'buyer' }]}
+      history={[{ id: 9, event: 'status', old_status: 'review', new_status: 'rejected', details: null, changed_at: t, changed_by: 'Мария' }]} />);
+    const items = screen.getAllByRole('listitem');
+    expect(items[0]).toHaveTextContent('→ Отклонена');
+    expect(items[1]).toHaveTextContent('Нет бюджета');
+  });
 });

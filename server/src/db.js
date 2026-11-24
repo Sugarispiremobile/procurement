@@ -5,7 +5,7 @@ pg.types.setTypeParser(1082, (v) => v); // DATE строкой, без сдви�
 pg.types.setTypeParser(1700, (v) => (v === null ? null : Number(v))); // NUMERIC числом
 
 // F5: каждое соединение работает в APP_TZ, поэтому CURRENT_DATE = «сегодня» в APP_TZ
-export const pool = new pg.Pool({ connectionString: config.databaseUrl, max: 10, options: `-c TimeZone=${config.timeZone}` });
+export const pool = new pg.Pool({ connectionString: config.databaseUrl, max: 10, options: `-c TimeZone=${config.timeZone} -c statement_timeout=${config.statementTimeoutMs}` });
 
 export const query = (text, params) => pool.query(text, params);
 

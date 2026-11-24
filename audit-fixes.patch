@@ -1,0 +1,1742 @@
+diff --git a/.env.prod.example b/.env.prod.example
+index ed0515d..8f11b6a 100644
+--- a/.env.prod.example
++++ b/.env.prod.example
+@@ -11,3 +11,13 @@ SMTP_SECURE=0
+ SMTP_USER=
+ SMTP_PASS=
+ SMTP_FROM=Заявки в снабжение <no-reply@company.kz>
++
++# Резервные копии (см. deploy/backup.sh). Копии, лежащие только на этом сервере, не защищают от потери сервера —
++# настройте копирование вовне и оповещение об ошибках.
++BACKUP_HOUR=03
++# Команда копирования вовне; пути файлов — в $BACKUP_FILES. Пример (ключ положите в deploy/ssh/id_ed25519):
++# BACKUP_UPLOAD_CMD=rsync -a -e "ssh -i /root/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new" $BACKUP_FILES backup@host:/srv/procurement/
++BACKUP_UPLOAD_CMD=
++# URL вебхука для сообщения об ошибке копии (POST, поле text) и URL «копия выполнена» (например, healthchecks.io)
++BACKUP_ALERT_URL=
++BACKUP_OK_URL=
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index a38a151..9c5066b 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -16,8 +16,8 @@ jobs:
+     steps:
+       - uses: actions/checkout@v4
+       - uses: actions/setup-node@v4
+-        with: { node-version: 20 }
+-      - run: npm install
++        with: { node-version: 22, cache: npm, cache-dependency-path: server/package-lock.json }
++      - run: npm ci
+       - run: npm run lint
+       - run: npm test
+   client:
+@@ -26,8 +26,8 @@ jobs:
+     steps:
+       - uses: actions/checkout@v4
+       - uses: actions/setup-node@v4
+-        with: { node-version: 20 }
+-      - run: npm install
++        with: { node-version: 22, cache: npm, cache-dependency-path: client/package-lock.json }
++      - run: npm ci
+       - run: npm run lint
+       - run: npm test
+       - run: npm run build
+@@ -49,10 +49,10 @@ jobs:
+     steps:
+       - uses: actions/checkout@v4
+       - uses: actions/setup-node@v4
+-        with: { node-version: 20 }
+-      - run: npm install && npm run build
++        with: { node-version: 22, cache: npm, cache-dependency-path: client/package-lock.json }
++      - run: npm ci && npm run build
+         working-directory: client
+-      - run: npm install && npm run db:setup
++      - run: npm ci && npm run db:setup
+         working-directory: server
+       - run: npm install && npx playwright install --with-deps chromium
+         working-directory: e2e
+diff --git a/.gitignore b/.gitignore
+index 75dfcc0..d672e96 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -8,3 +8,5 @@ backups/
+ e2e/node_modules/
+ e2e/test-results/
+ e2e/playwright-report/
++deploy/ssh/*
++!deploy/ssh/.gitkeep
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index e597bf4..8df628a 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,13 @@
+ # Changelog
+ 
++## 1.1.2 (по результатам аудита, SERG.md)
++- **CI:** починен тест B4 (BUG-001); тест скорости использует медиану (BUG-022); `npm ci` вместо `npm install` (BUG-021); Node.js 22 в Dockerfile, CI и `engines` (BUG-004).
++- **Безопасность:** токены приглашений маскируются в логах, без SMTP в production текст письма не логируется (BUG-002); снабженец не ведёт собственную заявку (BUG-003, администратор — исключение); зависимости обновлены: nodemailer 10, zod 4, react-router 7 — `npm audit` без уязвимостей (BUG-008); демо-пользователи отключены по умолчанию и не создаются в production (BUG-023); пароль не длиннее 72 байт (BUG-027); лимит неудачных входов на аккаунт — 30 в час независимо от IP (BUG-029); заблокированный пользователь не принимает приглашение, блокировка гасит приглашения (BUG-012); админ не сбрасывает пароль себе (BUG-011).
++- **Стабильность:** значения вне диапазона → 400 вместо 500, бюджет не округляется молча (BUG-009); корректная остановка по SIGTERM (BUG-020); `/api/health` проверяет БД, HEAD для страниц (BUG-019); `statement_timeout` для пула; CSV: нет зависания при обрыве клиента и обрыв соединения при ошибке БД (R1, R2).
++- **Правила:** файлы нельзя добавлять в закрытую заявку (BUG-010); комментарий автора к заявке без ответственного уходит всем снабженцам, комментарий снабжения — автору и ответственному (BUG-025).
++- **Интерфейс:** выход только по 401, при сбое сети — экран «Повторить» (BUG-005); контраст кнопок ≥ 4,5:1 (BUG-006); форма заявки на 320–360 px (BUG-007); русские сообщения валидации (BUG-013); сумма 0 (BUG-014); даты в APP_TZ (BUG-015); форма редактирования без гонки загрузки (BUG-016); дорожка статуса и таблица пользователей на узких экранах (BUG-017); порядок «событие → причина» (BUG-018); «назад» и поиск в списке (BUG-024); удалён мёртвый CSS, прототип перенесён в `docs/prototype-v1.0` (BUG-028).
++- **Резервные копии:** фиксированное время, оповещение об ошибке, копирование вовне, ежемесячная проверка восстановления (BUG-026).
++
+ ## 1.1.1
+ - Блокировка пользователя или смена роли на employee снимает его с открытых заявок (с записью в историю).
+ - Документация: убраны устаревшие упоминания в spec.md.
+diff --git a/Dockerfile b/Dockerfile
+index f229422..992cb86 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -1,16 +1,16 @@
+ # Multi-stage: сборка клиента -> образ сервера, который раздаёт и API, и client/dist
+-FROM node:20-alpine AS client
++FROM node:22-alpine AS client
+ WORKDIR /build/client
+ COPY client/package*.json ./
+-RUN npm install
++RUN npm ci
+ COPY client/ ./
+ RUN npm run build
+ 
+-FROM node:20-alpine
++FROM node:22-alpine
+ ENV NODE_ENV=production CLIENT_DIST=/app/client-dist UPLOAD_DIR=/data/uploads
+ WORKDIR /app/server
+ COPY server/package*.json ./
+-RUN npm install --omit=dev
++RUN npm ci --omit=dev
+ COPY server/ ./
+ COPY --from=client /build/client/dist /app/client-dist
+ RUN mkdir -p /data/uploads && chown -R node:node /data /app
+diff --git a/README.md b/README.md
+index 0983658..24f9526 100644
+--- a/README.md
++++ b/README.md
+@@ -1,15 +1,15 @@
+ # Заявки в отдел снабжения — версия 1.1
+ 
+ Внутренний сервис: сотрудники подают заявки на закупку, снабжение ведёт их по статусам (ответственный, переписка, вложения), администратор управляет доступом и справочниками.
+-Стек: React 19 + Vite · Node.js 20 + Express 5 · PostgreSQL 16 · zod · JWT.
++Стек: React 19 + Vite · Node.js 22 + Express 5 · PostgreSQL 16 · zod · JWT.
+ 
+ ## Быстрый старт (разработка)
+ ```bash
+-cd server && npm install && npm run setup     # .env, PostgreSQL через Docker, миграции, демо-данные
++cd server && npm install && npm run setup     # .env, PostgreSQL через Docker, миграции
+ npm run dev                                   # API: http://localhost:3000
+ cd ../client && npm install && npm run dev    # UI:  http://localhost:5173
+ ```
+-Пароль администратора (`admin@example.com`) генерируется случайно и печатается один раз при `setup`. Демо-пользователи (`SEED_DEMO=1`): `buyer@example.com`, `anna@example.com`, пароль `demo12345`.
++Пароль администратора (`admin@example.com`) генерируется случайно и печатается один раз при `setup`. Демо-пользователи по умолчанию **не создаются** (`SEED_DEMO=0` в `.env.example`). Для разработки поставьте в `server/.env` `SEED_DEMO=1` и выполните `npm run db:seed`: появятся `buyer@example.com`, `anna@example.com` (пароль `demo12345`). В `NODE_ENV=production` демо-данные не создаются никогда.
+ 
+ ## Тесты и качество
+ ```bash
+diff --git a/client/package-lock.json b/client/package-lock.json
+index 38f736b..471aae5 100644
+--- a/client/package-lock.json
++++ b/client/package-lock.json
+@@ -10,7 +10,7 @@
+       "dependencies": {
+         "react": "^19.0.0",
+         "react-dom": "^19.0.0",
+-        "react-router-dom": "^6.28.0"
++        "react-router-dom": "^7.18.6"
+       },
+       "devDependencies": {
+         "@eslint/js": "^9.15.0",
+@@ -1177,15 +1177,6 @@
+         "@jridgewell/sourcemap-codec": "^1.4.14"
+       }
+     },
+-    "node_modules/@remix-run/router": {
+-      "version": "1.23.4",
+-      "resolved": "https://registry.npmjs.org/@remix-run/router/-/router-1.23.4.tgz",
+-      "integrity": "sha512-q7j5geK7xs3UJSdm9/iytUNclBnLmYx1EnSeCFXHPeutdqgIMeFeHtUZgS3EhlKxdBEAu8OwtJCwmLrEzpSs7Q==",
+-      "license": "MIT",
+-      "engines": {
+-        "node": ">=14.0.0"
+-      }
+-    },
+     "node_modules/@rolldown/pluginutils": {
+       "version": "1.0.0-beta.27",
+       "resolved": "https://registry.npmjs.org/@rolldown/pluginutils/-/pluginutils-1.0.0-beta.27.tgz",
+@@ -2343,6 +2334,19 @@
+       "dev": true,
+       "license": "MIT"
+     },
++    "node_modules/cookie": {
++      "version": "1.1.1",
++      "resolved": "https://registry.npmjs.org/cookie/-/cookie-1.1.1.tgz",
++      "integrity": "sha512-ei8Aos7ja0weRpFzJnEA9UHJ/7XQmqglbRwnf2ATjcB9Wq874VKH9kfjjirM6UhU2/E5fFYadylyhFldcqSidQ==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=18"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/express"
++      }
++    },
+     "node_modules/cross-spawn": {
+       "version": "7.0.6",
+       "resolved": "https://registry.npmjs.org/cross-spawn/-/cross-spawn-7.0.6.tgz",
+@@ -4834,35 +4838,41 @@
+       }
+     },
+     "node_modules/react-router": {
+-      "version": "6.30.6",
+-      "resolved": "https://registry.npmjs.org/react-router/-/react-router-6.30.6.tgz",
+-      "integrity": "sha512-5HfK7k5im7LTOB0EqCQmfvy4C13G92Ssj1VTmouTK3AJvyjKTnFuCV0vcMAD/JS+JC4DvDIBRrlAeJIFjh5VWg==",
++      "version": "7.18.6",
++      "resolved": "https://registry.npmjs.org/react-router/-/react-router-7.18.6.tgz",
++      "integrity": "sha512-SP8KqKfRLlJzqzPseC+r6yYFsqPEavtQCC4BKV810tBGijjESLtwVPam+gPOO+wYeXrYN/TNy2CAykQVcNg4iQ==",
+       "license": "MIT",
+       "dependencies": {
+-        "@remix-run/router": "1.23.4"
++        "cookie": "^1.0.1",
++        "set-cookie-parser": "^2.6.0"
+       },
+       "engines": {
+-        "node": ">=14.0.0"
++        "node": ">=20.0.0"
+       },
+       "peerDependencies": {
+-        "react": ">=16.8"
++        "react": ">=18",
++        "react-dom": ">=18"
++      },
++      "peerDependenciesMeta": {
++        "react-dom": {
++          "optional": true
++        }
+       }
+     },
+     "node_modules/react-router-dom": {
+-      "version": "6.30.6",
+-      "resolved": "https://registry.npmjs.org/react-router-dom/-/react-router-dom-6.30.6.tgz",
+-      "integrity": "sha512-0RHKZz7wwffvkU+2MFVT2NnjK44ssLEV+m0CAJaS2Ksmorrwj7WxH00jO0SOCW26/tINUnJHToXblDs33I38YQ==",
++      "version": "7.18.6",
++      "resolved": "https://registry.npmjs.org/react-router-dom/-/react-router-dom-7.18.6.tgz",
++      "integrity": "sha512-a8JzFsKEY3EY9QL7t4T1b1OhuY0ngEfwMzXQNgBO/2cuIW9028JbVq3uk2rKnjLredzcIoDKLzUkguIq6fnkFA==",
+       "license": "MIT",
+       "dependencies": {
+-        "@remix-run/router": "1.23.4",
+-        "react-router": "6.30.6"
++        "react-router": "7.18.6"
+       },
+       "engines": {
+-        "node": ">=14.0.0"
++        "node": ">=20.0.0"
+       },
+       "peerDependencies": {
+-        "react": ">=16.8",
+-        "react-dom": ">=16.8"
++        "react": ">=18",
++        "react-dom": ">=18"
+       }
+     },
+     "node_modules/redent": {
+@@ -5101,6 +5111,12 @@
+         "semver": "bin/semver.js"
+       }
+     },
++    "node_modules/set-cookie-parser": {
++      "version": "2.7.3",
++      "resolved": "https://registry.npmjs.org/set-cookie-parser/-/set-cookie-parser-2.7.3.tgz",
++      "integrity": "sha512-irZHtTqurLna57KQG/s+fzOwv/J6XSH4cs8M/vsrY3uCaQ3S6+QJguAH0WdN47SXlk82voMZ4naWMQf8fdEoIg==",
++      "license": "MIT"
++    },
+     "node_modules/set-function-length": {
+       "version": "1.2.2",
+       "resolved": "https://registry.npmjs.org/set-function-length/-/set-function-length-1.2.2.tgz",
+diff --git a/client/package.json b/client/package.json
+index 72feb7e..88ac936 100644
+--- a/client/package.json
++++ b/client/package.json
+@@ -13,20 +13,20 @@
+   "dependencies": {
+     "react": "^19.0.0",
+     "react-dom": "^19.0.0",
+-    "react-router-dom": "^6.28.0"
++    "react-router-dom": "^7.18.6"
+   },
+   "devDependencies": {
+-    "@vitejs/plugin-react": "^4.3.4",
+-    "vite": "^6.0.0",
+-    "vitest": "^2.1.0",
+-    "jsdom": "^25.0.0",
++    "@eslint/js": "^9.15.0",
++    "@testing-library/jest-dom": "^6.6.0",
+     "@testing-library/react": "^16.0.0",
+     "@testing-library/user-event": "^14.5.0",
+-    "@testing-library/jest-dom": "^6.6.0",
++    "@vitejs/plugin-react": "^4.3.4",
+     "eslint": "^9.15.0",
+-    "@eslint/js": "^9.15.0",
+-    "globals": "^15.12.0",
+     "eslint-plugin-react": "^7.37.0",
+-    "eslint-plugin-react-hooks": "^5.0.0"
++    "eslint-plugin-react-hooks": "^5.0.0",
++    "globals": "^15.12.0",
++    "jsdom": "^25.0.0",
++    "vite": "^6.0.0",
++    "vitest": "^2.1.0"
+   }
+-}
+\ No newline at end of file
++}
+diff --git a/client/src/components/Timeline.jsx b/client/src/components/Timeline.jsx
+index 904982d..42b75d8 100644
+--- a/client/src/components/Timeline.jsx
++++ b/client/src/components/Timeline.jsx
+@@ -18,7 +18,7 @@ export default function Timeline({ comments, history }) {
+   const rows = [
+     ...comments.map((c) => ({ key: `c${c.id}`, at: c.created_at, kind: 'comment', c })),
+     ...history.map((h) => ({ key: `h${h.id}`, at: h.changed_at, kind: 'event', h })),
+-  ].sort((a, b) => new Date(a.at) - new Date(b.at));
++  ].sort((a, b) => new Date(a.at) - new Date(b.at) || (a.kind === 'event' ? 0 : 1) - (b.kind === 'event' ? 0 : 1)); // при равном времени событие раньше комментария
+ 
+   if (!rows.length) return <p className="meta">Пока ничего нет.</p>;
+   return (
+diff --git a/client/src/components/Track.jsx b/client/src/components/Track.jsx
+index 07601ee..37635c0 100644
+--- a/client/src/components/Track.jsx
++++ b/client/src/components/Track.jsx
+@@ -1,6 +1,6 @@
+ import { FLOW, ST } from '../constants.js';
+ 
+-/** Дорожка статуса: new → review → buying → done; для отклонённых/отменённых — штамп. */
++/** Дорожка статуса: new → review → buying → done (подпись под каждой точкой); для отклонённых/отменённых — штамп. */
+ export default function Track({ status }) {
+   const s = ST[status];
+   if (!FLOW.includes(status)) {
+@@ -8,18 +8,13 @@ export default function Track({ status }) {
+   }
+   const at = FLOW.indexOf(status);
+   return (
+-    <div style={{ '--st': s.c }} aria-label={`Этап: ${s.t}`}>
+-      <div className="track-l">
+-        {FLOW.map((k, i) => <span key={k} className={i === at ? 'cur' : ''}>{ST[k].t}</span>)}
+-      </div>
+-      <div className="track" aria-hidden="true">
+-        {FLOW.map((k, i) => (
+-          <span key={k} style={{ display: 'contents' }}>
+-            <b className={`${i <= at ? 'on' : ''} ${i === at ? 'cur' : ''}`} />
+-            {i < FLOW.length - 1 && <i className={i < at ? 'on' : ''} />}
+-          </span>
+-        ))}
+-      </div>
+-    </div>
++    <ol className="track" style={{ '--st': s.c }} aria-label={`Этап: ${s.t}`}>
++      {FLOW.map((k, i) => (
++        <li key={k} className={`${i <= at ? 'on' : ''} ${i === at ? 'cur' : ''}`.trim()} aria-current={i === at ? 'step' : undefined}>
++          <b aria-hidden="true" />
++          <span>{ST[k].t}</span>
++        </li>
++      ))}
++    </ol>
+   );
+ }
+diff --git a/client/src/constants.js b/client/src/constants.js
+index e56d472..238bcfd 100644
+--- a/client/src/constants.js
++++ b/client/src/constants.js
+@@ -25,9 +25,11 @@ export const cfg = { currency: '₸', timeZone: 'Asia/Almaty', registrationOpen:
+ /** «Сегодня» в часовом поясе приложения (как на сервере), а не в поясе браузера. */
+ export const todayStr = () => new Intl.DateTimeFormat('en-CA', { timeZone: cfg.timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+ export const fmtDate = (d) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString('ru-RU') : '—');
++// BUG-015: все даты и время показываем в часовом поясе приложения (как считает сервер), а не браузера и не UTC
+ export const fmtDT = (t) =>
+-  new Date(t).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+-export const fmtMoney = (n) => (n ? `${Number(n).toLocaleString('ru-RU')} ${cfg.currency}` : '—');
++  new Date(t).toLocaleString('ru-RU', { timeZone: cfg.timeZone, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
++export const fmtDay = (t) => new Date(t).toLocaleDateString('ru-RU', { timeZone: cfg.timeZone, day: '2-digit', month: '2-digit', year: 'numeric' });
++export const fmtMoney = (n) => (n != null && n !== '' ? `${Number(n).toLocaleString('ru-RU')} ${cfg.currency}` : '—');
+ export const fmtSize = (b) => (b < 1024 ? `${b} Б` : b < 1048576 ? `${Math.round(b / 1024)} КБ` : `${(b / 1048576).toFixed(1)} МБ`);
+ export const isOverdue = (r) => (typeof r.is_overdue === 'boolean' ? r.is_overdue : Boolean(r.due_date) && r.due_date < todayStr() && !CLOSED.includes(r.status));
+ 
+diff --git a/client/src/context.jsx b/client/src/context.jsx
+index 83acb7f..78026f4 100644
+--- a/client/src/context.jsx
++++ b/client/src/context.jsx
+@@ -18,14 +18,20 @@ export const useAuth = () => useContext(AuthCtx);
+ export function AuthProvider({ children }) {
+   const [user, setUser] = useState(null);
+   const [loading, setLoading] = useState(Boolean(getToken()));
++  const [bootError, setBootError] = useState(null);
++  const [attempt, setAttempt] = useState(0);
+ 
+   const logout = useCallback(() => { setToken(null); setUser(null); }, []);
+ 
+   useEffect(() => {
+     setUnauthorizedHandler(logout);
+     if (!getToken()) return;
+-    api.get('/auth/me').then((d) => setUser(d.user)).catch(logout).finally(() => setLoading(false));
+-  }, [logout]);
++    // выходим только при 401; сбой сети или 5xx (например, перезапуск сервера) сессию не стирает
++    setBootError(null); setLoading(true);
++    api.get('/auth/me').then((d) => setUser(d.user)).catch((e) => {
++      if (e?.status === 401) logout(); else setBootError(e?.full || 'Нет связи с сервером');
++    }).finally(() => setLoading(false));
++  }, [logout, attempt]);
+ 
+   const value = useMemo(() => ({
+     user, loading, logout,
+@@ -42,6 +48,15 @@ export function AuthProvider({ children }) {
+     setUser,
+   }), [user, loading, logout]);
+ 
++  if (bootError) {
++    return (
++      <div className="panel" role="alert">
++        <h2>Нет связи с сервером</h2>
++        <p className="meta">{bootError}. Ваша сессия сохранена — попробуйте ещё раз.</p>
++        <button className="btn" type="button" onClick={() => setAttempt((a) => a + 1)}>Повторить</button>
++      </div>
++    );
++  }
+   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
+ }
+ 
+diff --git a/client/src/pages/AdminUsers.jsx b/client/src/pages/AdminUsers.jsx
+index 72615d1..e85deec 100644
+--- a/client/src/pages/AdminUsers.jsx
++++ b/client/src/pages/AdminUsers.jsx
+@@ -1,7 +1,7 @@
+ import { useEffect, useState } from 'react';
+ import { api } from '../api.js';
+ import { useAuth, useToast } from '../context.jsx';
+-import { ROLES, fmtDate } from '../constants.js';
++import { ROLES, fmtDay } from '../constants.js';
+ 
+ function InviteBox({ invite, onClose }) {
+   const notify = useToast();
+@@ -93,24 +93,24 @@ export default function AdminUsers() {
+                 const self = u.id === me.id;
+                 return (
+                   <tr key={u.id}>
+-                    <td>{u.full_name}</td><td>{u.email}</td>
+-                    <td>
++                    <td data-label="Имя">{u.full_name}</td><td data-label="Email">{u.email}</td>
++                    <td data-label="Подразделение">
+                       <select value={u.department_id ?? ''} aria-label={`Подразделение: ${u.full_name}`} onChange={(e) => patch(u, { department_id: e.target.value ? Number(e.target.value) : null }, 'Подразделение изменено')}>
+                         <option value="">—</option>{departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                       </select>
+                     </td>
+-                    <td>{fmtDate(u.created_at.slice(0, 10))}</td>
+-                    <td>
++                    <td data-label="Создан">{fmtDay(u.created_at)}</td>
++                    <td data-label="Роль">
+                       <select value={u.role} aria-label={`Роль: ${u.full_name}`} disabled={self} onChange={(e) => patch(u, { role: e.target.value }, `${u.full_name}: ${ROLES[e.target.value]}`)}>
+                         {Object.entries(ROLES).map(([k, t]) => <option key={k} value={k}>{t}</option>)}
+                       </select>
+                     </td>
+-                    <td>{status(u)}</td>
++                    <td data-label="Статус">{status(u)}</td>
+                     <td className="rowacts">
+                       {!self && (u.is_active
+                         ? <button className="btn danger sm" type="button" onClick={() => confirm(`Заблокировать ${u.full_name}?`) && patch(u, { is_active: false }, 'Пользователь заблокирован')}>Заблокировать</button>
+                         : <button className="btn ghost sm" type="button" onClick={() => patch(u, { is_active: true }, 'Пользователь разблокирован')}>Разблокировать</button>)}
+-                      <button className="btn ghost sm" type="button" onClick={() => reset(u)}>Сбросить пароль</button>
++                      {!self && <button className="btn ghost sm" type="button" onClick={() => reset(u)}>Сбросить пароль</button>}
+                     </td>
+                   </tr>
+                 );
+diff --git a/client/src/pages/RequestForm.jsx b/client/src/pages/RequestForm.jsx
+index e37e005..229c511 100644
+--- a/client/src/pages/RequestForm.jsx
++++ b/client/src/pages/RequestForm.jsx
+@@ -1,7 +1,7 @@
+ import { useEffect, useState } from 'react';
+ import { Link, useNavigate, useParams } from 'react-router-dom';
+ import { api } from '../api.js';
+-import { useToast } from '../context.jsx';
++import { useAuth, useToast } from '../context.jsx';
+ import { cfg, todayStr } from '../constants.js';
+ 
+ const emptyItem = () => ({ name: '', quantity: 1, unit: 'шт.' });
+@@ -10,31 +10,36 @@ export default function RequestForm() {
+   const { id } = useParams(); // есть id — редактирование
+   const nav = useNavigate();
+   const notify = useToast();
++  const { user } = useAuth();
++  const [blocked, setBlocked] = useState('');
+   const [categories, setCategories] = useState([]);
+-  const [loaded, setLoaded] = useState(!id);
++  const [loaded, setLoaded] = useState(false);
+   const [orig, setOrig] = useState(null);
+   const [f, setF] = useState({ category_id: '', is_urgent: false, due_date: '', budget: '', justification: '' });
+   const [items, setItems] = useState([emptyItem()]);
+   const [err, setErr] = useState('');
+   const [busy, setBusy] = useState(false);
+ 
++  // BUG-016: категории и заявка грузятся вместе, затем объединяются — «(архив)» не затирается
+   useEffect(() => {
+-    api.get('/categories').then((d) => {
+-      setCategories(d.items);
+-      setF((p) => (p.category_id ? p : { ...p, category_id: d.items[0]?.id ?? '' }));
+-    }).catch((e) => setErr(e.full));
+-  }, []);
+-
+-  useEffect(() => {
+-    if (!id) return;
+-    api.get(`/requests/${id}`).then((r) => {
+-      if (r.status !== 'new') { setErr('Заявку можно менять только в статусе «Новая»'); return; }
+-      setOrig(r);
+-      setCategories((cs) => (cs.some((c) => c.id === r.category_id) ? cs : [...cs, { id: r.category_id, name: `${r.category} (архив)` }]));
+-      setF({ category_id: r.category_id, is_urgent: r.is_urgent, due_date: r.due_date ?? '', budget: r.budget ?? '', justification: r.justification });
+-      setItems(r.items.map(({ name, quantity, unit }) => ({ name, quantity, unit })));
+-    }).catch((e) => setErr(e.full)).finally(() => setLoaded(true));
+-  }, [id]);
++    let live = true;
++    Promise.all([api.get('/categories'), id ? api.get(`/requests/${id}`) : null]).then(([c, r]) => {
++      if (!live) return;
++      let cats = c.items;
++      if (!r) {
++        setF((p) => (p.category_id ? p : { ...p, category_id: cats[0]?.id ?? '' }));
++      } else {
++        if (r.author_id !== user.id) { setBlocked('Редактировать заявку может только её автор'); return; }
++        if (r.status !== 'new') { setBlocked('Заявку можно менять только в статусе «Новая»'); return; }
++        if (!cats.some((x) => x.id === r.category_id)) cats = [...cats, { id: r.category_id, name: `${r.category} (архив)` }];
++        setOrig(r);
++        setF({ category_id: r.category_id, is_urgent: r.is_urgent, due_date: r.due_date ?? '', budget: r.budget ?? '', justification: r.justification });
++        setItems(r.items.map(({ name, quantity, unit }) => ({ name, quantity, unit })));
++      }
++      setCategories(cats);
++    }).catch((e) => live && setBlocked(e.status === 404 ? 'Заявка не найдена' : e.full)).finally(() => live && setLoaded(true));
++    return () => { live = false; };
++  }, [id, user.id]);
+ 
+   const setItem = (i, k, v) => setItems(items.map((it, j) => (j === i ? { ...it, [k]: v } : it)));
+ 
+@@ -62,6 +67,7 @@ export default function RequestForm() {
+   };
+ 
+   if (!loaded) return <p className="empty">Загрузка…</p>;
++  if (blocked) return <div className="panel"><h2>{blocked}</h2><Link to={id ? `/requests/${id}` : '/requests'}>Назад</Link></div>;
+ 
+   return (
+     <form className="panel" onSubmit={submit}>
+@@ -104,9 +110,10 @@ export default function RequestForm() {
+           <textarea id="why" maxLength={1000} placeholder="Зачем это нужно и что будет без закупки" value={f.justification} onChange={(e) => setF({ ...f, justification: e.target.value })} />
+         </div>
+       </div>
++      {categories.length === 0 && <p className="urgent" role="alert">Нет доступных категорий — обратитесь к администратору.</p>}
+       <p className="urgent" role="alert" style={{ margin: '10px 0 0' }}>{err}</p>
+       <div className="btnrow">
+-        <button className="btn" disabled={busy}>{id ? 'Сохранить изменения' : 'Отправить заявку'}</button>
++        <button className="btn" disabled={busy || categories.length === 0}>{id ? 'Сохранить изменения' : 'Отправить заявку'}</button>
+         <Link className="btn ghost" to={id ? `/requests/${id}` : '/requests'}>Отмена</Link>
+       </div>
+     </form>
+diff --git a/client/src/pages/RequestPage.jsx b/client/src/pages/RequestPage.jsx
+index 986ab11..5712d36 100644
+--- a/client/src/pages/RequestPage.jsx
++++ b/client/src/pages/RequestPage.jsx
+@@ -37,7 +37,9 @@ export default function RequestPage() {
+   const closed = ['done', 'rejected', 'cancelled'].includes(r.status);
+   const mine = r.assignee_id === user.id;
+   // B3: менять статус может ответственный или админ; пока никого нет — любой снабженец
+-  const canMove = isBuyer && !closed && (isAdmin || !r.assignee_id || mine);
++  // BUG-003: свою заявку снабженец не ведёт (сервер вернёт 403); администратор — исключение
++  const ownLocked = isOwner && !isAdmin;
++  const canMove = isBuyer && !closed && !ownLocked && (isAdmin || !r.assignee_id || mine);
+ 
+   const run = async (fn, okMsg) => {
+     setBusy(true);
+@@ -88,7 +90,7 @@ export default function RequestPage() {
+         <h3 style={{ fontSize: 13, marginTop: 20 }}>Ответственный</h3>
+         <div className="assignee">
+           <span>{r.assignee_name ? <b>{r.assignee_name}</b> : <em className="meta">не назначен</em>}</span>
+-          {isBuyer && !closed && !r.assignee_id && <button className="btn sm" type="button" disabled={busy} onClick={() => assign()}>Взять в работу</button>}
++          {isBuyer && !closed && !ownLocked && !r.assignee_id && <button className="btn sm" type="button" disabled={busy} onClick={() => assign()}>Взять в работу</button>}
+           {isBuyer && !closed && r.assignee_id && !mine && !isAdmin && <span className="meta">Заявку ведёт {r.assignee_name}</span>}
+           {isAdmin && !closed && (
+             <select aria-label="Назначить ответственного" value={r.assignee_id ?? ''} disabled={busy} onChange={(e) => assign(e.target.value ? Number(e.target.value) : null)}>
+@@ -104,7 +106,7 @@ export default function RequestPage() {
+         <p style={{ margin: '6px 0 0' }}>{r.justification}</p>
+ 
+         <Files requestId={r.id} files={r.files} onChange={(files) => setR({ ...r, files })}
+-          canUpload={isBuyer || (isOwner && !closed)} meId={user.id} closed={closed} />
++          canUpload={!closed && (isBuyer || isOwner)} meId={user.id} closed={closed} />
+ 
+         {isOwner && r.status === 'new' && (
+           <div className="acts">
+@@ -113,7 +115,8 @@ export default function RequestPage() {
+           </div>
+         )}
+ 
+-        {isBuyer && !closed && !canMove && <p className="meta">Менять статус может только ответственный ({r.assignee_name}) или администратор.</p>}
++        {isBuyer && !closed && ownLocked && <p className="meta">Свою заявку обрабатывает другой сотрудник снабжения или администратор.</p>}
++        {isBuyer && !closed && !ownLocked && !canMove && <p className="meta">Менять статус может только ответственный ({r.assignee_name}) или администратор.</p>}
+         {canMove && (
+           <div className="acts">
+             {NEXT[r.status].filter((k) => k !== 'rejected').map((k) => (
+diff --git a/client/src/pages/RequestsPage.jsx b/client/src/pages/RequestsPage.jsx
+index a0b95ec..c2fbacf 100644
+--- a/client/src/pages/RequestsPage.jsx
++++ b/client/src/pages/RequestsPage.jsx
+@@ -20,7 +20,7 @@ function Stats() {
+ 
+ const LIMIT = 20;
+ 
+-/** Очередь заявок. Все фильтры живут в адресной строке (B4): ссылкой можно поделиться, «назад» работает. */
++/** Очередь заявок. Все фильтры живут в адресной строке (B4): ссылкой можно поделиться, каждое действие — отдельная запись истории (набор текста поиска историю не засоряет). */
+ export default function RequestsPage() {
+   const { user } = useAuth();
+   const notify = useToast();
+@@ -34,17 +34,21 @@ export default function RequestsPage() {
+   const [departments, setDepartments] = useState([]);
+ 
+   const page = Math.max(1, Number(get('page')) || 1);
+-  const update = (patch, keepPage = false) => {
++  const update = (patch, { keepPage = false, replace = false } = {}) => {
+     const next = new URLSearchParams(sp);
+     for (const [k, v] of Object.entries(patch)) (v === '' || v == null || v === false ? next.delete(k) : next.set(k, v === true ? '1' : v));
+     if (!keepPage) next.delete('page');
+-    setSp(next, { replace: true });
++    setSp(next, { replace });
+   };
+ 
++  // Поле поиска следует за адресной строкой (переход по ссылке с другим ?q=, «назад»)
++  const urlQ = get('q');
++  useEffect(() => { setQ((cur) => (cur.trim() === urlQ ? cur : urlQ)); }, [urlQ]);
++
+   // Поиск — с задержкой, чтобы не слать запрос на каждую букву
+   useEffect(() => {
+     if (q.trim() === get('q')) return undefined;
+-    const t = setTimeout(() => update({ q: q.trim() }), 300);
++    const t = setTimeout(() => update({ q: q.trim() }, { replace: true }), 300);
+     return () => clearTimeout(t);
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+   }, [q]);
+@@ -117,7 +121,7 @@ export default function RequestsPage() {
+             <label className="datef">по <input type="date" aria-label="Создана по" value={get('to')} min={get('from') || undefined} onChange={(e) => update({ to: e.target.value })} /></label>
+           </div>
+         )}
+-        {filtersOn && <p className="meta"><button type="button" className="linkbtn" onClick={() => { setQ(''); setSp({}, { replace: true }); }}>Сбросить все фильтры</button></p>}
++        {filtersOn && <p className="meta"><button type="button" className="linkbtn" onClick={() => { setQ(''); setSp({}); }}>Сбросить все фильтры</button></p>}
+ 
+         {error && <p className="urgent" role="alert">{error}</p>}
+         {!data && !error && <p className="empty">Загрузка…</p>}
+@@ -131,9 +135,9 @@ export default function RequestsPage() {
+         {data && data.total > 0 && (
+           <div className="pager" role="navigation" aria-label="Страницы">
+             <span className="meta">Показано {data.requests.length} из {data.total}</span>
+-            <button className="btn ghost sm" type="button" disabled={page <= 1} onClick={() => update({ page: page - 1 }, true)}>← Назад</button>
++            <button className="btn ghost sm" type="button" disabled={page <= 1} onClick={() => update({ page: page - 1 }, { keepPage: true })}>← Назад</button>
+             <span className="meta">Стр. {page} из {pages}</span>
+-            <button className="btn ghost sm" type="button" disabled={page >= pages} onClick={() => update({ page: page + 1 }, true)}>Вперёд →</button>
++            <button className="btn ghost sm" type="button" disabled={page >= pages} onClick={() => update({ page: page + 1 }, { keepPage: true })}>Вперёд →</button>
+           </div>
+         )}
+       </section>
+diff --git a/client/src/styles.css b/client/src/styles.css
+index 8b8503a..544d189 100644
+--- a/client/src/styles.css
++++ b/client/src/styles.css
+@@ -1,7 +1,7 @@
+ /* ============ Токены ============ */
+ :root{
+-  --bg:#f4efe6;--bg2:#ebe4d6;--surface:#fffdf8;--ink:#17140f;--mute:#6f6759;--line:#ddd3c0;
+-  --accent:#17140f;--on-accent:#fffdf8;--signal:#ff5a1f;--signal-soft:#ffe3d6;
++  --bg:#f4efe6;--bg2:#ebe4d6;--surface:#fffdf8;--ink:#17140f;--mute:#675f52;--line:#ddd3c0;
++  --accent:#17140f;--on-accent:#fffdf8;--signal:#ff5a1f;--cta:#c2410c;--signal-soft:#ffe3d6;
+   --ok:#14804a;--bad:#c4321f;--shadow:0 1px 0 rgba(23,20,15,.06),0 10px 30px -14px rgba(23,20,15,.25);
+   --r:16px;--display:"Unbounded","Onest",system-ui,sans-serif;--body:"Onest",system-ui,-apple-system,"Segoe UI",Arial,sans-serif;
+   color-scheme:light;
+@@ -57,7 +57,7 @@ textarea{min-height:90px;resize:vertical}
+ .full{grid-column:1/-1}
+ .row{display:grid;grid-template-columns:1fr 90px 90px 38px;gap:8px;margin-bottom:8px;align-items:center}
+ .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:2px solid var(--ink);border-radius:12px;padding:11px 20px;font:600 14px var(--body);cursor:pointer;
+-  background:var(--signal);color:#fff;border-color:var(--ink);box-shadow:3px 3px 0 var(--ink);transition:transform .12s,box-shadow .12s}
++  background:var(--cta);color:#fff;border-color:var(--ink);box-shadow:3px 3px 0 var(--ink);transition:transform .12s,box-shadow .12s}
+ .btn:hover{transform:translate(-1px,-1px);box-shadow:4px 4px 0 var(--ink)}
+ .btn:active{transform:translate(2px,2px);box-shadow:0 0 0 var(--ink)}
+ .btn.ghost{background:var(--surface);color:var(--ink)}
+@@ -70,7 +70,6 @@ a.btn{text-decoration:none}
+ .x{border:0;background:none;color:var(--mute);font-size:22px;cursor:pointer;border-radius:8px}.x:hover{color:var(--bad)}
+ .meta{color:var(--mute);font-size:13px}
+ .urgent{color:var(--bad);font-weight:600}
+-.hint{font-size:13px;color:var(--mute);margin:0 0 10px}
+ .empty{text-align:center;color:var(--mute);padding:48px 8px;border:1.5px dashed var(--line);border-radius:var(--r)}
+ .btnrow{margin-top:16px;display:flex;gap:10px;flex-wrap:wrap}
+ .items{margin:10px 0;padding-left:20px}
+@@ -83,14 +82,15 @@ a.btn{text-decoration:none}
+ .badge{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;padding:4px 11px 4px 9px;border-radius:99px;white-space:nowrap;
+   background:color-mix(in srgb,var(--st) 20%,var(--surface));border:1px solid color-mix(in srgb,var(--st) 55%,transparent)}
+ .badge::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--st);box-shadow:0 0 0 3px color-mix(in srgb,var(--st) 25%,transparent)}
+-.track{display:flex;align-items:center;margin:14px 0 4px;gap:0}
+-.track i{position:relative;flex:1;height:4px;background:var(--line);border-radius:4px}
+-.track i.on{background:var(--st)}
+-.track b{width:14px;height:14px;border-radius:50%;background:var(--surface);border:3px solid var(--line);flex:none;position:relative}
+-.track b.on{border-color:var(--st);background:var(--st)}
+-.track b.cur{box-shadow:0 0 0 5px color-mix(in srgb,var(--st) 30%,transparent);animation:pulse 1.8s ease-in-out infinite}
+-.track-l{display:flex;justify-content:space-between;font-size:11px;color:var(--mute);margin-bottom:2px;letter-spacing:.02em}
+-.track-l span.cur{color:var(--ink);font-weight:700}
++.track{list-style:none;margin:14px 0 4px;padding:0;display:grid;grid-template-columns:repeat(4,1fr)}
++.track li{position:relative;padding-top:24px;text-align:center;font-size:11px;line-height:1.25;color:var(--mute);letter-spacing:.02em;overflow-wrap:anywhere;padding-inline:2px}
++.track li::before{content:"";position:absolute;top:5px;left:-50%;width:100%;height:4px;border-radius:4px;background:var(--line)}
++.track li:first-child::before{display:none}
++.track li.on::before{background:var(--st)}
++.track li b{position:absolute;top:0;left:50%;margin-left:-7px;z-index:1;width:14px;height:14px;border-radius:50%;background:var(--surface);border:3px solid var(--line)}
++.track li.on b{border-color:var(--st);background:var(--st)}
++.track li.cur b{box-shadow:0 0 0 5px color-mix(in srgb,var(--st) 30%,transparent);animation:pulse 1.8s ease-in-out infinite}
++.track li.cur{color:var(--ink);font-weight:700}
+ .stamp{display:inline-block;border:3px double var(--st);color:var(--st);font:800 13px var(--display);text-transform:uppercase;padding:4px 12px;transform:rotate(-4deg);border-radius:6px;margin:10px 0 2px;letter-spacing:.06em}
+ @keyframes pulse{50%{box-shadow:0 0 0 9px color-mix(in srgb,var(--st) 6%,transparent)}}
+ 
+@@ -105,7 +105,7 @@ a.btn{text-decoration:none}
+ .stat.hot b{color:var(--signal)}
+ .stat.bad b{color:var(--bad)}
+ 
+-/* ============ Список и доска ============ */
++/* ============ Список ============ */
+ .listhead{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:14px}
+ .listhead h2{margin:0;font-size:24px}
+ .tools{display:flex;gap:8px;flex:1 1 300px;justify-content:flex-end;flex-wrap:wrap}
+@@ -117,7 +117,6 @@ a.btn{text-decoration:none}
+ .chip{border:1.5px solid var(--line);background:var(--surface);color:var(--ink);border-radius:99px;padding:5px 13px;font:500 13px var(--body);cursor:pointer;transition:.15s}
+ .chip:hover{border-color:var(--ink)}
+ .chip[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+-.chip em{font-style:normal;opacity:.6;margin-left:4px}
+ 
+ .req{position:relative;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);padding:18px 20px 16px 24px;margin-bottom:14px;box-shadow:var(--shadow);overflow:hidden;animation:rise .45s both;animation-delay:calc(var(--i,0) * 40ms)}
+ .req::before{content:"";position:absolute;left:0;top:0;bottom:0;width:8px;background:var(--st,var(--line))}
+@@ -134,24 +133,6 @@ a.req.link:hover{transform:translateY(-3px) rotate(-.2deg);box-shadow:0 18px 34p
+ .kv{display:flex;gap:6px 22px;flex-wrap:wrap;margin:10px 0 4px;font-size:13px;color:var(--mute)}
+ .kv span b{color:var(--ink);font-weight:600}
+ 
+-.board{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(250px,1fr);gap:14px;overflow-x:auto;padding-bottom:14px;align-items:start}
+-.col{background:var(--bg2);border-radius:var(--r);padding:10px;min-height:120px}
+-.col h3{display:flex;justify-content:space-between;align-items:center;font:700 12px var(--display);letter-spacing:.04em;text-transform:uppercase;padding:6px 6px 10px}
+-.col h3::before{content:"";width:10px;height:10px;border-radius:50%;background:var(--st);margin-right:8px}
+-.col h3 span{margin-left:auto;background:var(--surface);border-radius:99px;padding:1px 9px;font-size:12px}
+-.col .req{padding:12px 14px 12px 18px;margin-bottom:10px;box-shadow:none}
+-.col .req::before{width:5px}
+-.col .req .title{font-size:14px}
+-.col .items,.col .track,.col .track-l{display:none}
+-
+-/* ============ Таймлайн ============ */
+-details.hist{margin-top:22px;font-size:14px}
+-details.hist summary{cursor:pointer;font:700 13px var(--display);letter-spacing:.02em;margin-bottom:10px}
+-details.hist ul{margin:0;padding:0 0 0 6px;list-style:none;border-left:2px dashed var(--line)}
+-details.hist li{position:relative;padding:0 0 12px 20px;color:var(--mute)}
+-details.hist li::before{content:"";position:absolute;left:-7px;top:6px;width:10px;height:10px;border-radius:50%;background:var(--signal);border:2px solid var(--surface)}
+-details.hist li b{color:var(--ink)}
+-
+ /* ============ Вход ============ */
+ .landing{display:grid;grid-template-columns:1.1fr .9fr;gap:40px;align-items:center;min-height:calc(100vh - 160px)}
+ .hero h1{font-size:clamp(34px,5.2vw,62px);line-height:1;font-weight:800;letter-spacing:-.05em}
+@@ -174,26 +155,27 @@ details.hist li b{color:var(--ink)}
+ .demo button{all:unset;cursor:pointer;color:var(--ink);font-weight:600;text-decoration:underline dotted}
+ @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+ 
+-/* ============ Таблицы, уведомления, документы ============ */
+-.tablewrap{overflow-x:auto}
++/* ============ Таблицы и уведомления ============ */
++.tablewrap{overflow-x:auto;padding:0 4px 6px}
+ table.t{border-collapse:collapse;width:100%;font-size:14px}
+ table.t th,table.t td{border-bottom:1px dashed var(--line);padding:11px 10px;text-align:left;vertical-align:middle}
+ table.t th{color:var(--mute);font-weight:600;font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+ table.t select{width:auto;padding:6px 10px}
++table.t td.rowacts{min-width:200px}
++@media(max-width:760px){
++  table.t thead{display:none}
++  table.t,table.t tbody,table.t tr,table.t td{display:block;width:100%}
++  table.t tr{border:1px solid var(--line);border-radius:12px;padding:8px 12px;margin-bottom:12px;background:var(--surface)}
++  table.t td{border:0;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:6px 0;text-align:right}
++  table.t td::before{content:attr(data-label);color:var(--mute);font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;text-align:left}
++  table.t td.rowacts{min-width:0;justify-content:flex-end}
++  table.t td.rowacts::before{content:none}
++}
+ .toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:12px 20px;border-radius:14px;
+   display:none;max-width:90vw;z-index:50;font-weight:600;box-shadow:0 14px 40px -10px rgba(0,0,0,.5);animation:rise .25s both}
+-.doc{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 28px 28px;overflow-wrap:anywhere;box-shadow:var(--shadow)}
+-.doc h1{font-size:24px;margin:22px 0 10px}.doc h2{font-size:18px;margin:26px 0 8px}.doc h3{font-size:15px;margin:18px 0 6px}
+-.doc table{border-collapse:collapse;display:block;overflow-x:auto;margin:12px 0;font-size:14px}
+-.doc th,.doc td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+-.doc th{background:var(--bg)}
+-.doc code{background:var(--bg);padding:1px 6px;border-radius:5px;font-size:13px}
+-.doc pre{background:var(--bg);padding:12px 14px;border-radius:10px;overflow-x:auto;font-size:13px}
+-.doc blockquote{margin:12px 0;padding:6px 14px;border-left:4px solid var(--signal);color:var(--mute)}
+-
+ @media(max-width:820px){.landing{grid-template-columns:1fr;min-height:0;padding-top:18px}.floaters{display:none}}
+ @media(max-width:620px){
+-  .wrap{padding:0 14px 60px}.grid{grid-template-columns:1fr}.row{grid-template-columns:1fr 70px 70px 34px}
++  .wrap{padding:0 14px 60px}.grid{grid-template-columns:1fr}.row{grid-template-columns:1fr 1fr 34px}.row input:first-child{grid-column:1/-1}
+   .stats{grid-template-columns:1fr 1fr}.stat b{font-size:32px}.tools input{max-width:none}.me div{display:none}.me{padding:4px}
+   .brand small{display:none}.req.big{padding:20px 18px 20px 24px}.req.big .title{font-size:21px}
+ }
+@@ -207,7 +189,7 @@ table.t select{width:auto;padding:6px 10px}
+ .check{display:inline-flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin:0}
+ .check input{width:auto}
+ .datef{display:inline-flex;align-items:center;gap:6px;font-size:13px;margin:0}
+-.linkbtn{background:none;border:0;padding:0;color:var(--signal);font:inherit;font-weight:600;text-decoration:underline;cursor:pointer;text-align:left}
++.linkbtn{background:none;border:0;padding:0;color:var(--ink);font:inherit;font-weight:600;text-decoration:underline;cursor:pointer;text-align:left}
+ .pager{display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap;margin:22px 0}
+ .assignee{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px}
+ .assignee select{width:auto}
+diff --git a/client/src/test/AuthProvider.test.jsx b/client/src/test/AuthProvider.test.jsx
+new file mode 100644
+index 0000000..576a9b3
+--- /dev/null
++++ b/client/src/test/AuthProvider.test.jsx
+@@ -0,0 +1,30 @@
++import { describe, it, expect, vi, beforeEach } from 'vitest';
++import { render, screen } from '@testing-library/react';
++import userEvent from '@testing-library/user-event';
++
++const api = { get: vi.fn(), post: vi.fn() };
++const setToken = vi.fn();
++vi.mock('../api.js', () => ({ api, getToken: () => 'tok', setToken, setUnauthorizedHandler: () => {} }));
++
++const { AuthProvider } = await import('../context.jsx');
++
++beforeEach(() => { vi.resetAllMocks(); });
++
++describe('AuthProvider: загрузка сессии (BUG-005)', () => {
++  it('сбой сети или 5xx не стирает токен, показывается экран «Повторить»', async () => {
++    api.get.mockRejectedValueOnce({ status: 0, full: 'Нет связи' });
++    render(<AuthProvider><p>приложение</p></AuthProvider>);
++    expect(await screen.findByText('Нет связи с сервером')).toBeInTheDocument();
++    expect(setToken).not.toHaveBeenCalled();
++    api.get.mockResolvedValueOnce({ user: { id: 1, role: 'buyer' } });
++    await userEvent.click(screen.getByRole('button', { name: 'Повторить' }));
++    expect(await screen.findByText('приложение')).toBeInTheDocument();
++  });
++
++  it('ответ 401 завершает сессию', async () => {
++    api.get.mockRejectedValueOnce({ status: 401, full: 'Сессия истекла' });
++    render(<AuthProvider><p>приложение</p></AuthProvider>);
++    expect(await screen.findByText('приложение')).toBeInTheDocument();
++    expect(setToken).toHaveBeenCalledWith(null);
++  });
++});
+diff --git a/client/src/test/RequestForm.test.jsx b/client/src/test/RequestForm.test.jsx
+index 8915fee..92e8716 100644
+--- a/client/src/test/RequestForm.test.jsx
++++ b/client/src/test/RequestForm.test.jsx
+@@ -5,14 +5,15 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
+ 
+ const api = { get: vi.fn(), post: vi.fn(), put: vi.fn() };
+ vi.mock('../api.js', () => ({ api }));
+-vi.mock('../context.jsx', () => ({ useToast: () => () => {} }));
++vi.mock('../context.jsx', () => ({ useToast: () => () => {}, useAuth: () => ({ user: { id: 7 } }) }));
+ 
+ const { default: RequestForm } = await import('../pages/RequestForm.jsx');
+ 
+-const renderForm = () => render(
+-  <MemoryRouter initialEntries={['/requests/new']}>
++const renderForm = (path = '/requests/new') => render(
++  <MemoryRouter initialEntries={[path]}>
+     <Routes>
+       <Route path="/requests/new" element={<RequestForm />} />
++      <Route path="/requests/:id/edit" element={<RequestForm />} />
+       <Route path="/requests/:id" element={<p>карточка заявки</p>} />
+     </Routes>
+   </MemoryRouter>,
+@@ -60,4 +61,29 @@ describe('RequestForm', () => {
+     renderForm();
+     expect(await screen.findByText(/Ориентировочная сумма, ₸/)).toBeInTheDocument();
+   });
++
++  it('BUG-016: архивная категория заявки остаётся выбранной, даже если заявка пришла раньше категорий', async () => {
++    api.get.mockImplementation((url) => (url === '/categories'
++      ? new Promise((res) => setTimeout(() => res({ items: [{ id: 1, name: 'Канцелярия' }] }), 30))
++      : Promise.resolve({ id: 5, status: 'new', author_id: 7, category_id: 9, category: 'Старая', is_urgent: false, due_date: null, budget: null, justification: 'x', items: [{ name: 'a', quantity: 1, unit: 'шт.' }] })));
++    renderForm('/requests/5/edit');
++    const select = await screen.findByLabelText('Категория');
++    expect(select).toHaveValue('9');
++    expect(screen.getByRole('option', { name: 'Старая (архив)' })).toBeInTheDocument();
++  });
++
++  it('BUG-016: чужая или не «новая» заявка — только сообщение, без формы', async () => {
++    api.get.mockImplementation((url) => Promise.resolve(url === '/categories' ? { items: [{ id: 1, name: 'К' }] }
++      : { id: 5, status: 'review', author_id: 7, category_id: 1, category: 'К', items: [] }));
++    renderForm('/requests/5/edit');
++    expect(await screen.findByText(/только в статусе «Новая»/)).toBeInTheDocument();
++    expect(screen.queryByLabelText('Категория')).toBeNull();
++  });
++
++  it('BUG-013: пустой список категорий — понятное сообщение, отправка заблокирована', async () => {
++    api.get.mockResolvedValue({ items: [] });
++    renderForm();
++    expect(await screen.findByText(/Нет доступных категорий/)).toBeInTheDocument();
++    expect(screen.getByRole('button', { name: 'Отправить заявку' })).toBeDisabled();
++  });
+ });
+diff --git a/client/src/test/Timeline.test.jsx b/client/src/test/Timeline.test.jsx
+index ba0dc57..57ffddf 100644
+--- a/client/src/test/Timeline.test.jsx
++++ b/client/src/test/Timeline.test.jsx
+@@ -39,4 +39,14 @@ describe('Timeline', () => {
+     render(<Timeline comments={[]} history={[]} />);
+     expect(screen.getByText('Пока ничего нет.')).toBeInTheDocument();
+   });
++
++  it('BUG-018: при равном времени событие «→ Отклонена» стоит раньше причины отклонения', () => {
++    const t = '2026-11-17T12:00:00Z';
++    render(<Timeline
++      comments={[{ id: 9, kind: 'rejection', body: 'Нет бюджета', created_at: t, author_id: 2, author_name: 'Мария', author_role: 'buyer' }]}
++      history={[{ id: 9, event: 'status', old_status: 'review', new_status: 'rejected', details: null, changed_at: t, changed_by: 'Мария' }]} />);
++    const items = screen.getAllByRole('listitem');
++    expect(items[0]).toHaveTextContent('→ Отклонена');
++    expect(items[1]).toHaveTextContent('Нет бюджета');
++  });
+ });
+diff --git a/client/src/test/constants.test.js b/client/src/test/constants.test.js
+index 0a75689..3cd1b83 100644
+--- a/client/src/test/constants.test.js
++++ b/client/src/test/constants.test.js
+@@ -1,5 +1,5 @@
+ import { describe, it, expect } from 'vitest';
+-import { cfg, fmtMoney, fmtSize, isOverdue, todayStr, NEXT } from '../constants.js';
++import { cfg, fmtMoney, fmtSize, fmtDT, fmtDay, isOverdue, todayStr, NEXT } from '../constants.js';
+ 
+ describe('constants', () => {
+   it('сумма показывается в валюте из конфигурации', () => {
+@@ -30,4 +30,14 @@ describe('constants', () => {
+   it('из закрытых статусов переходов нет', () => {
+     for (const s of ['done', 'rejected', 'cancelled']) expect(NEXT[s]).toEqual([]);
+   });
++
++  it('BUG-014: нулевая сумма — «0 ₸», отсутствие суммы — «—»', () => {
++    expect(fmtMoney(0)).toBe('0 ₸');
++    expect(fmtMoney(undefined)).toBe('—');
++  });
++
++  it('BUG-015: даты показываются в часовом поясе приложения (Asia/Almaty), а не в UTC', () => {
++    expect(fmtDay('2026-11-16T22:30:00Z')).toBe('17.11.2026');
++    expect(fmtDT('2026-11-16T22:30:00Z')).toContain('17.11.2026');
++  });
+ });
+diff --git a/deploy/backup-loop.sh b/deploy/backup-loop.sh
+new file mode 100644
+index 0000000..78b6d86
+--- /dev/null
++++ b/deploy/backup-loop.sh
+@@ -0,0 +1,12 @@
++#!/bin/bash
++# Цикл резервного копирования: первая копия сразу, затем каждый день в BACKUP_HOUR (по умолчанию 03:00 по времени контейнера).
++# Ошибка копии не останавливает цикл (о ней сообщает backup.sh).
++hour="${BACKUP_HOUR:-03}"
++bash /backup.sh || true
++while true; do
++  now=$(date +%s)
++  next=$(date -d "today ${hour}:00" +%s)
++  [ "$next" -gt "$now" ] || next=$(date -d "tomorrow ${hour}:00" +%s)
++  sleep $((next - now))
++  bash /backup.sh || true
++done
+diff --git a/deploy/backup.Dockerfile b/deploy/backup.Dockerfile
+new file mode 100644
+index 0000000..efac710
+--- /dev/null
++++ b/deploy/backup.Dockerfile
+@@ -0,0 +1,5 @@
++# Образ для резервного копирования: postgres-клиент + инструменты для копирования вовне и оповещений
++FROM postgres:16
++RUN apt-get update \
++ && apt-get install -y --no-install-recommends curl rsync openssh-client ca-certificates \
++ && rm -rf /var/lib/apt/lists/*
+diff --git a/deploy/backup.sh b/deploy/backup.sh
+index 88addd5..7943ee3 100644
+--- a/deploy/backup.sh
++++ b/deploy/backup.sh
+@@ -1,9 +1,51 @@
+ #!/bin/bash
+-# Ежедневная копия: pg_dump + каталог вложений; хранится 14 дней. Запуск вручную: docker compose -f docker-compose.prod.yml exec backup bash /backup.sh
++# Копия: pg_dump + каталог вложений; локально хранится 14 дней.
++# Порядок важен: сначала база, потом вложения — в архиве могут оказаться «лишние» файлы (безвредно),
++# но не будет записей в базе без файла.
++# Дополнительно (переменные окружения):
++#   BACKUP_UPLOAD_CMD  — команда копирования ВОВНЕ; пути файлов в $BACKUP_FILES (rsync, rclone, aws s3 cp …)
++#   BACKUP_ALERT_URL   — при ошибке отправляется POST с текстом (Slack/Telegram/Mattermost-вебхук, healthchecks.io /fail)
++#   BACKUP_OK_URL      — при успехе отправляется GET (healthchecks.io: сигнал «копия сделана»)
++#   BACKUP_VERIFY=1    — проверить восстановление; по умолчанию проверка выполняется 1-го числа месяца
++# Запуск вручную: docker compose -f docker-compose.prod.yml exec backup bash /backup.sh
+ set -euo pipefail
+-cd /backups
++SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++BACKUP_DIR="${BACKUP_DIR:-/backups}"
++UPLOADS_DIR="${UPLOADS_DIR:-/uploads}"
++
++alert() {
++  echo "[backup] ОШИБКА: $1" >&2
++  if [ -n "${BACKUP_ALERT_URL:-}" ]; then
++    curl -fsS -m 20 -X POST --data-urlencode "text=[procurement] резервная копия не выполнена: $1" "$BACKUP_ALERT_URL" >/dev/null \
++      || echo "[backup] не удалось отправить оповещение" >&2
++  fi
++}
++trap 'alert "строка $LINENO (код $?)"' ERR
++
++cd "$BACKUP_DIR"
+ stamp=$(date +%Y-%m-%d_%H%M)
+-pg_dump --format=custom --file="db_${stamp}.dump"
+-tar -czf "uploads_${stamp}.tar.gz" -C /uploads .
+-find /backups -maxdepth 1 -type f \( -name 'db_*.dump' -o -name 'uploads_*.tar.gz' \) -mtime +14 -delete
++db="db_${stamp}.dump"
++up="uploads_${stamp}.tar.gz"
++
++pg_dump --format=custom --file="$db"
++tar -czf "$up" -C "$UPLOADS_DIR" .
++
++# Быстрая проверка, что файлы читаются и не пустые
++pg_restore --list "$db" >/dev/null
++[ -s "$db" ] && tar -tzf "$up" >/dev/null
++
++# Проверка восстановления во временную базу (раз в месяц или по BACKUP_VERIFY=1)
++if [ "${BACKUP_VERIFY:-}" = "1" ] || [ "$(date +%d)" = "01" ]; then
++  bash "$SCRIPT_DIR/verify-restore.sh" "$BACKUP_DIR/$db"
++fi
++
++# Копия вовне
++if [ -n "${BACKUP_UPLOAD_CMD:-}" ]; then
++  BACKUP_FILES="$BACKUP_DIR/$db $BACKUP_DIR/$up" bash -c "$BACKUP_UPLOAD_CMD"
++else
++  echo "[backup] ВНИМАНИЕ: BACKUP_UPLOAD_CMD не задан — копии лежат только на этом сервере" >&2
++fi
++
++find "$BACKUP_DIR" -maxdepth 1 -type f \( -name 'db_*.dump' -o -name 'uploads_*.tar.gz' \) -mtime +14 -delete
+ echo "[backup] готово: ${stamp}"
++[ -z "${BACKUP_OK_URL:-}" ] || curl -fsS -m 20 "$BACKUP_OK_URL" >/dev/null || true
+diff --git a/deploy/restore.md b/deploy/restore.md
+index dbf7768..d1ddcd4 100644
+--- a/deploy/restore.md
++++ b/deploy/restore.md
+@@ -10,4 +10,4 @@ docker compose -f docker-compose.prod.yml run --rm -v "$PWD/backups:/b" app sh -
+ docker compose -f docker-compose.prod.yml start app
+ ```
+ 
+-Проверку восстановления делайте раз в квартал на тестовой машине.
++Автоматическая проверка восстановления (`deploy/verify-restore.sh`) выполняется 1-го числа каждого месяца и по `BACKUP_VERIFY=1`; раз в квартал всё равно проверяйте полное восстановление на тестовой машине.
+diff --git a/deploy/ssh/.gitkeep b/deploy/ssh/.gitkeep
+new file mode 100644
+index 0000000..e69de29
+diff --git a/deploy/verify-restore.sh b/deploy/verify-restore.sh
+new file mode 100644
+index 0000000..bf06f23
+--- /dev/null
++++ b/deploy/verify-restore.sh
+@@ -0,0 +1,14 @@
++#!/bin/bash
++# Проверка восстановления: разворачивает дамп во временную базу, проверяет, что таблицы читаются, и удаляет её.
++# Использование: bash verify-restore.sh /backups/db_ГГГГ-ММ-ДД_ЧЧММ.dump   (PGHOST/PGUSER/PGPASSWORD — как у pg_dump)
++set -euo pipefail
++dump="${1:?укажите файл дампа}"
++tmp="restore_check_$(date +%s)"
++cleanup() { dropdb --if-exists "$tmp" >/dev/null 2>&1 || true; }
++trap cleanup EXIT
++createdb "$tmp"
++pg_restore --no-owner --exit-on-error -d "$tmp" "$dump"
++users=$(psql -At -d "$tmp" -c 'SELECT count(*) FROM users')
++reqs=$(psql -At -d "$tmp" -c 'SELECT count(*) FROM requests')
++echo "[verify] восстановление проверено: пользователей $users, заявок $reqs"
++[ "$users" -ge 1 ] || { echo "[verify] ОШИБКА: в копии нет пользователей" >&2; exit 1; }
+diff --git a/docker-compose.prod.yml b/docker-compose.prod.yml
+index c48299b..cf70f9a 100644
+--- a/docker-compose.prod.yml
++++ b/docker-compose.prod.yml
+@@ -55,7 +55,7 @@ services:
+       - caddy_config:/config
+ 
+   backup:
+-    image: postgres:16
++    build: { context: ./deploy, dockerfile: backup.Dockerfile }
+     restart: unless-stopped
+     depends_on:
+       db: { condition: service_healthy }
+@@ -64,11 +64,18 @@ services:
+       PGUSER: procurement
+       PGPASSWORD: ${POSTGRES_PASSWORD}
+       PGDATABASE: procurement
++      BACKUP_HOUR: ${BACKUP_HOUR:-03}
++      BACKUP_UPLOAD_CMD: ${BACKUP_UPLOAD_CMD:-}
++      BACKUP_ALERT_URL: ${BACKUP_ALERT_URL:-}
++      BACKUP_OK_URL: ${BACKUP_OK_URL:-}
+     volumes:
+       - ./backups:/backups
+       - uploads:/uploads:ro
+       - ./deploy/backup.sh:/backup.sh:ro
+-    entrypoint: ["/bin/bash", "-c", "while true; do bash /backup.sh; sleep 86400; done"]
++      - ./deploy/verify-restore.sh:/verify-restore.sh:ro
++      - ./deploy/backup-loop.sh:/backup-loop.sh:ro
++      - ./deploy/ssh:/root/.ssh:ro
++    entrypoint: ["/bin/bash", "/backup-loop.sh"]
+ 
+ volumes:
+   pgdata:
+diff --git a/docs/admin-guide.md b/docs/admin-guide.md
+index 0ca66e0..4eccaa7 100644
+--- a/docs/admin-guide.md
++++ b/docs/admin-guide.md
+@@ -23,4 +23,4 @@
+ Контейнер `backup` ежедневно делает `pg_dump` и архив вложений в `./backups`, хранит 14 дней. Восстановление — `deploy/restore.md`.
+ 
+ ## Логи
+-`docker compose -f docker-compose.prod.yml logs -f app` — JSON (pino): id запроса и id пользователя; пароли и токены не логируются.
++`docker compose -f docker-compose.prod.yml logs -f app` — JSON (pino): id запроса и id пользователя; пароли и токены не логируются (в путях ссылок-приглашений токен заменяется на `***`; без SMTP в production текст писем в лог не выводится — ссылку берите из интерфейса администратора). Если логи до обновления могли попасть к посторонним, выдайте новые ссылки тем, чьи приглашения ещё действуют.
+diff --git a/prototype/app.js b/docs/prototype-v1.0/app.js
+similarity index 100%
+rename from prototype/app.js
+rename to docs/prototype-v1.0/app.js
+diff --git a/prototype/style.css b/docs/prototype-v1.0/style.css
+similarity index 100%
+rename from prototype/style.css
+rename to docs/prototype-v1.0/style.css
+diff --git a/prototype/zayavki.html b/docs/prototype-v1.0/zayavki.html
+similarity index 100%
+rename from prototype/zayavki.html
+rename to docs/prototype-v1.0/zayavki.html
+diff --git a/docs/spec.md b/docs/spec.md
+index 80b48ec..8706613 100644
+--- a/docs/spec.md
++++ b/docs/spec.md
+@@ -6,7 +6,7 @@
+ 
+ **Критерии успеха:** сотрудник подаёт заявку менее чем за 2 минуты; любая заявка видна в очереди снабжения сразу после отправки; сотрудник в любой момент видит статус и комментарий; ни одна заявка не теряется.
+ 
+-Реализация: монорепозиторий `procurement/` — `server/` (Node.js + Express + PostgreSQL) и `client/` (React + Vite). Исходный статический прототип сохранён в `prototype/zayavki.html` как образец интерфейса.
++Реализация: монорепозиторий `procurement/` — `server/` (Node.js + Express + PostgreSQL) и `client/` (React + Vite). Исходный статический прототип сохранён в `docs/prototype-v1.0/zayavki.html` как образец интерфейса.
+ 
+ ## 2. Стек
+ 
+diff --git a/docs/user-guide.md b/docs/user-guide.md
+index aab0ca2..2bde1d5 100644
+--- a/docs/user-guide.md
++++ b/docs/user-guide.md
+@@ -4,6 +4,6 @@
+ 2. **Подать заявку.** «+ Новая заявка»: категория, срочность, срок, сумма, позиции и обоснование. Любая роль может подавать заявки.
+ 3. **Следить.** В списке и в карточке виден статус и ответственный. При смене статуса и новых комментариях приходит письмо (отключить можно в «Профиле»).
+ 4. **Комментарии.** В карточке — общая лента с историей. Комментарии нельзя изменить или удалить. Писать можно и в закрытой заявке.
+-5. **Файлы.** До 5 файлов по 10 МБ (pdf, jpg, png, webp, xlsx, docx): перетащите в блок «Файлы». Удалить можно свой файл, пока заявка не закрыта.
++5. **Файлы.** До 5 файлов по 10 МБ (pdf, jpg, png, webp, xlsx, docx): перетащите в блок «Файлы». Файлы можно добавлять и удалять (свои) только пока заявка не закрыта.
+ 6. **Править и отменять** заявку можно, пока она «Новая».
+ 7. **Профиль.** Смена имени и пароля, «Выйти на всех устройствах».
+diff --git a/server/.env.example b/server/.env.example
+index b7c037f..e227ddc 100644
+--- a/server/.env.example
++++ b/server/.env.example
+@@ -38,4 +38,4 @@ ADMIN_PASSWORD=
+ ADMIN_NAME=Администратор
+ 
+ # 1 — добавить демо-пользователей и демо-заявки (только для разработки)
+-SEED_DEMO=1
++SEED_DEMO=0
+diff --git a/server/package-lock.json b/server/package-lock.json
+index 20b63e6..48f4400 100644
+--- a/server/package-lock.json
++++ b/server/package-lock.json
+@@ -13,11 +13,11 @@
+         "express-rate-limit": "^8.0.0",
+         "helmet": "^8.0.0",
+         "jsonwebtoken": "^9.0.2",
+-        "nodemailer": "^6.9.16",
++        "nodemailer": "^10.6.1",
+         "pg": "^8.13.0",
+         "pino": "^9.5.0",
+         "pino-http": "^10.3.0",
+-        "zod": "^3.23.8"
++        "zod": "^4.6.7"
+       },
+       "devDependencies": {
+         "@eslint/js": "^9.15.0",
+@@ -1572,12 +1572,12 @@
+       }
+     },
+     "node_modules/nodemailer": {
+-      "version": "6.10.1",
+-      "resolved": "https://registry.npmjs.org/nodemailer/-/nodemailer-6.10.1.tgz",
+-      "integrity": "sha512-Z+iLaBGVaSjbIzQ4pX6XV41HrooLsQ10ZWPUehGmuantvzWoDVBnmsdUcOIDM1t+yPor5pDhVlDESgOMEGxhHA==",
++      "version": "10.6.1",
++      "resolved": "https://registry.npmjs.org/nodemailer/-/nodemailer-10.6.1.tgz",
++      "integrity": "sha512-d7kfFfS/tR4Aca+SBvRaQ+MXKNv7d2JiRe5TxaRcFT/kYMh4GGPnW9aKksTIEvyEbA7d/7HYWE4YPDEHxzJj/g==",
+       "license": "MIT-0",
+       "engines": {
+-        "node": ">=6.0.0"
++        "node": ">=20.0.0"
+       }
+     },
+     "node_modules/object-inspect": {
+@@ -2425,9 +2425,9 @@
+       }
+     },
+     "node_modules/zod": {
+-      "version": "3.25.76",
+-      "resolved": "https://registry.npmjs.org/zod/-/zod-3.25.76.tgz",
+-      "integrity": "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==",
++      "version": "4.6.7",
++      "resolved": "https://registry.npmjs.org/zod/-/zod-4.6.7.tgz",
++      "integrity": "sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==",
+       "license": "MIT",
+       "funding": {
+         "url": "https://github.com/sponsors/colinhacks"
+diff --git a/server/package.json b/server/package.json
+index 8db77e0..10cde1b 100644
+--- a/server/package.json
++++ b/server/package.json
+@@ -4,7 +4,7 @@
+   "private": true,
+   "type": "module",
+   "engines": {
+-    "node": ">=20.6"
++    "node": ">=22"
+   },
+   "scripts": {
+     "setup": "node scripts/setup.js",
+@@ -19,18 +19,18 @@
+   "dependencies": {
+     "bcryptjs": "^2.4.3",
+     "express": "^5.1.0",
+-    "jsonwebtoken": "^9.0.2",
+-    "pg": "^8.13.0",
+-    "zod": "^3.23.8",
+     "express-rate-limit": "^8.0.0",
+     "helmet": "^8.0.0",
+-    "nodemailer": "^6.9.16",
++    "jsonwebtoken": "^9.0.2",
++    "nodemailer": "^10.6.1",
++    "pg": "^8.13.0",
+     "pino": "^9.5.0",
+-    "pino-http": "^10.3.0"
++    "pino-http": "^10.3.0",
++    "zod": "^4.6.7"
+   },
+   "devDependencies": {
+-    "eslint": "^9.15.0",
+     "@eslint/js": "^9.15.0",
++    "eslint": "^9.15.0",
+     "globals": "^15.12.0"
+   }
+-}
+\ No newline at end of file
++}
+diff --git a/server/scripts/seed.js b/server/scripts/seed.js
+index 5d055d1..e4246ba 100644
+--- a/server/scripts/seed.js
++++ b/server/scripts/seed.js
+@@ -70,7 +70,9 @@ try {
+       console.log('ADMIN_EMAIL / ADMIN_PASSWORD не заданы — администратор не создан.');
+     }
+ 
+-    if (process.env.SEED_DEMO === '1') {
++    if (process.env.SEED_DEMO === '1' && process.env.NODE_ENV === 'production') {
++      console.warn('SEED_DEMO=1 проигнорирован: демо-пользователи с известным паролем не создаются при NODE_ENV=production.');
++    } else if (process.env.SEED_DEMO === '1') {
+       const anna = await upsertUser(c, { name: 'Анна Лебедева', email: 'anna@example.com', password: 'demo12345', role: 'employee', dept: 'Бухгалтерия' });
+       const sergey = await upsertUser(c, { name: 'Сергей Орлов', email: 'sergey@example.com', password: 'demo12345', role: 'employee', dept: 'ИТ' });
+       const buyer = await upsertUser(c, { name: 'Мария Снабженцева', email: 'buyer@example.com', password: 'demo12345', role: 'buyer', dept: 'Администрация' });
+diff --git a/server/src/app.js b/server/src/app.js
+index 63238c5..0fc33e6 100644
+--- a/server/src/app.js
++++ b/server/src/app.js
+@@ -8,6 +8,7 @@ import fs from 'node:fs';
+ import { fileURLToPath } from 'node:url';
+ import { config } from './config.js';
+ import { authenticate, createLimiters } from './auth.js';
++import { query } from './db.js';
+ import { errorHandler, HttpError } from './errors.js';
+ import authRoutes from './routes/auth.js';
+ import requestRoutes from './routes/requests.js';
+@@ -27,7 +28,7 @@ export function createApp() {
+   app.use(pinoHttp({
+     logger,
+     genReqId: (req) => req.headers['x-request-id'] || crypto.randomUUID(),
+-    serializers: { req: (r) => ({ id: r.id, method: r.method, url: r.url.split('?')[0] }), res: (r) => ({ statusCode: r.statusCode }) },
++    serializers: { req: (r) => ({ id: r.id, method: r.method, url: r.url.split('?')[0].replace(/\/invite\/[^/]+/, '/invite/***') }), res: (r) => ({ statusCode: r.statusCode }) },
+     // пользователь становится известен только после authenticate, поэтому добавляем его при завершении запроса
+     customSuccessObject: (req, res, val) => ({ ...val, userId: req.user?.id ?? null }),
+     customErrorObject: (req, res, err, val) => ({ ...val, userId: req.user?.id ?? null }),
+@@ -51,7 +52,9 @@ export function createApp() {
+   app.use(express.json({ limit: '100kb' }));
+ 
+   const limiters = createLimiters();
+-  app.get('/api/health', (req, res) => res.json({ ok: true }));
++  app.get('/api/health', async (req, res) => {
++    try { await query({ text: 'SELECT 1', query_timeout: 2000 }); res.json({ ok: true }); } catch { res.status(503).json({ ok: false }); }
++  });
+   app.get('/api/config', (req, res) =>
+     res.json({ currency: config.currency, timeZone: config.timeZone, registrationOpen: Boolean(config.allowedEmailDomain), domain: config.allowedEmailDomain || null }));
+   app.use('/api/auth', authRoutes(limiters));
+@@ -66,7 +69,7 @@ export function createApp() {
+   const dist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), process.env.CLIENT_DIST || '../../client/dist');
+   if (fs.existsSync(dist)) {
+     app.use(express.static(dist));
+-    app.use((req, res, next) => (req.method === 'GET' ? res.sendFile(path.join(dist, 'index.html')) : next()));
++    app.use((req, res, next) => (['GET', 'HEAD'].includes(req.method) ? res.sendFile(path.join(dist, 'index.html')) : next()));
+   }
+ 
+   app.use(errorHandler);
+diff --git a/server/src/auth.js b/server/src/auth.js
+index 4fb79cf..16878aa 100644
+--- a/server/src/auth.js
++++ b/server/src/auth.js
+@@ -47,6 +47,10 @@ export function createLimiters() {
+   return {
+     loginIp: rateLimit({ ...base, windowMs: 15 * 60_000, limit: 50, skipSuccessfulRequests: true,
+       keyGenerator: (req) => ipKeyGenerator(req.ip), handler: tooMany(loginMsg) }),
++    // BUG-029: лимит неудачных попыток на один аккаунт независимо от IP
++    loginEmail: rateLimit({ ...base, windowMs: 60 * 60_000, limit: 30, skipSuccessfulRequests: true,
++      skip: (req) => !req.body?.email,
++      keyGenerator: (req) => String(req.body.email).toLowerCase(), handler: tooMany(loginMsg) }),
+     loginPair: rateLimit({ ...base, windowMs: 15 * 60_000, limit: 10, skipSuccessfulRequests: true,
+       keyGenerator: (req) => `${ipKeyGenerator(req.ip)}|${String(req.body?.email ?? '').toLowerCase()}`, handler: tooMany(loginMsg) }),
+     register: rateLimit({ ...base, windowMs: 60 * 60_000, limit: 5,
+diff --git a/server/src/config.js b/server/src/config.js
+index 601c07b..5d0e47e 100644
+--- a/server/src/config.js
++++ b/server/src/config.js
+@@ -22,6 +22,7 @@ const serverDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
+ 
+ export const config = {
+   isProd,
++  statementTimeoutMs: Number(process.env.STATEMENT_TIMEOUT_MS) || 60_000, // защита пула от тяжёлых запросов
+   port: Number(process.env.PORT) || 3000,
+   databaseUrl: required('DATABASE_URL'),
+   jwtSecret,
+diff --git a/server/src/db.js b/server/src/db.js
+index 38e7e0f..bd21b75 100644
+--- a/server/src/db.js
++++ b/server/src/db.js
+@@ -5,7 +5,7 @@ pg.types.setTypeParser(1082, (v) => v); // DATE строкой, без сдви
+ pg.types.setTypeParser(1700, (v) => (v === null ? null : Number(v))); // NUMERIC числом
+ 
+ // F5: каждое соединение работает в APP_TZ, поэтому CURRENT_DATE = «сегодня» в APP_TZ
+-export const pool = new pg.Pool({ connectionString: config.databaseUrl, max: 10, options: `-c TimeZone=${config.timeZone}` });
++export const pool = new pg.Pool({ connectionString: config.databaseUrl, max: 10, options: `-c TimeZone=${config.timeZone} -c statement_timeout=${config.statementTimeoutMs}` });
+ 
+ export const query = (text, params) => pool.query(text, params);
+ 
+diff --git a/server/src/errors.js b/server/src/errors.js
+index a7c8699..a6f0ebf 100644
+--- a/server/src/errors.js
++++ b/server/src/errors.js
+@@ -20,7 +20,7 @@ export function errorHandler(err, req, res, next) {
+   if (err?.type === 'entity.parse.failed') return res.status(400).json({ error: 'Некорректный JSON' });
+   if (err?.type === 'entity.too.large') return res.status(413).json({ error: 'Слишком большой запрос' });
+   // F1: ошибки значений PostgreSQL — это 400, а не 500
+-  if (['22007', '22008', '22P02'].includes(err?.code)) return res.status(400).json({ error: 'Некорректное значение в запросе' });
++  if (['22007', '22008', '22P02', '22003'].includes(err?.code)) return res.status(400).json({ error: 'Некорректное значение в запросе' });
+   if (err?.code === '23503') return res.status(400).json({ error: 'Указана несуществующая связанная запись' });
+   if (err?.code === '23505') return res.status(409).json({ error: 'Такая запись уже существует' });
+   if (req.log) req.log.error({ err, userId: req.user?.id ?? null }, 'unhandled error'); else console.error(err);
+diff --git a/server/src/index.js b/server/src/index.js
+index 18fc2e3..82c5606 100644
+--- a/server/src/index.js
++++ b/server/src/index.js
+@@ -16,6 +16,15 @@ try {
+ const app = createApp();
+ const server = app.listen(config.port, () => logger.info(`Сервер запущен: http://localhost:${config.port}`));
+ 
+-const shutdown = async () => { server.close(); await pool.end(); process.exit(0); };
++// BUG-020: сначала дожидаемся завершения запросов в полёте (не дольше 10 с), потом закрываем пул
++let stopping = false;
++const shutdown = async () => {
++  if (stopping) return;
++  stopping = true;
++  setTimeout(() => process.exit(1), 10_000).unref();
++  await new Promise((resolve) => { server.close(resolve); server.closeIdleConnections?.(); });
++  await pool.end();
++  process.exit(0);
++};
+ process.on('SIGINT', shutdown);
+ process.on('SIGTERM', shutdown);
+diff --git a/server/src/mailer.js b/server/src/mailer.js
+index f716696..76f2775 100644
+--- a/server/src/mailer.js
++++ b/server/src/mailer.js
+@@ -20,7 +20,10 @@ async function deliver({ to, subject, text }) {
+   if (!t) {
+     outbox.push({ to, subject, text, at: new Date() });
+     if (outbox.length > 200) outbox.shift();
+-    if (config.logLevel !== 'silent') console.log(`[mail] → ${to} | ${subject}\n${text}`);
++    if (config.logLevel !== 'silent') {
++      // в production тело письма (ссылки-приглашения/сброса) в лог не пишем
++      console.log(config.isProd ? `[mail] → ${to} | ${subject} (SMTP не настроен, текст не логируется)` : `[mail] → ${to} | ${subject}\n${text}`);
++    }
+     return;
+   }
+   await t.sendMail({ from: config.smtp.from, to, subject, text });
+diff --git a/server/src/routes/auth.js b/server/src/routes/auth.js
+index a57c794..d51e822 100644
+--- a/server/src/routes/auth.js
++++ b/server/src/routes/auth.js
+@@ -44,7 +44,7 @@ export default function authRoutes(limiters) {
+     res.status(201).json({ token: signToken(u), user: publicUser(u) });
+   });
+ 
+-  router.post('/login', limiters.loginIp, limiters.loginPair, async (req, res) => {
++  router.post('/login', limiters.loginIp, limiters.loginEmail, limiters.loginPair, async (req, res) => {
+     const data = loginSchema.parse(req.body);
+     const user = (await query(`${USER_SQL} WHERE u.email = $1`, [data.email])).rows[0];
+     const ok = await bcrypt.compare(data.password, user?.password_hash ?? DUMMY_HASH);
+@@ -68,7 +68,7 @@ export default function authRoutes(limiters) {
+     const { rows } = await db.query(
+       `SELECT i.token_hash, i.user_id, u.full_name, u.email
+          FROM invites i JOIN users u ON u.id = i.user_id
+-        WHERE i.token_hash = $1 AND i.used_at IS NULL AND i.expires_at > now() ${lock ? 'FOR UPDATE OF i' : ''}`,
++        WHERE i.token_hash = $1 AND i.used_at IS NULL AND i.expires_at > now() AND u.is_active ${lock ? 'FOR UPDATE OF i' : ''}`,
+       [hashToken(token)],
+     );
+     if (!rows[0]) throw notFound('Ссылка недействительна или устарела. Попросите администратора выдать новую');
+diff --git a/server/src/routes/misc.js b/server/src/routes/misc.js
+index 9213564..8f9ae21 100644
+--- a/server/src/routes/misc.js
++++ b/server/src/routes/misc.js
+@@ -8,7 +8,7 @@ import { dictSchema, dictPatchSchema, createUserSchema, userPatchSchema, statsQu
+ 
+ const parseId = (v, msg = 'Не найдено') => {
+   const id = Number(v);
+-  if (!Number.isInteger(id) || id < 1) throw notFound(msg);
++  if (!Number.isInteger(id) || id < 1 || id > 2147483647) throw notFound(msg);
+   return id;
+ };
+ 
+@@ -90,6 +90,8 @@ usersRouter.patch('/:id', async (req, res) => {
+       [id, d.role ?? null, d.is_active ?? null, d.full_name ?? null, 'department_id' in d, d.department_id ?? null]);
+     const u = rows[0];
+     if (!u) return false;
++    // BUG-012: блокировка гасит неиспользованные приглашения
++    if (!u.is_active) await c.query('UPDATE invites SET used_at = now() WHERE user_id = $1 AND used_at IS NULL', [id]);
+     // Заблокированный или ставший employee не может вести заявки: снимаем с открытых
+     if (!u.is_active || u.role === 'employee') {
+       const freed = await c.query(
+@@ -111,6 +113,7 @@ usersRouter.patch('/:id', async (req, res) => {
+ // A5: сброс пароля — старый перестаёт работать, пользователь получает ссылку
+ usersRouter.post('/:id/reset-password', async (req, res) => {
+   const id = parseId(req.params.id, 'Пользователь не найден');
++  if (id === req.user.id) throw conflict('Нельзя сбросить пароль самому себе — используйте смену пароля в профиле');
+   const out = await tx(async (c) => {
+     const { rows } = await c.query(
+       'UPDATE users SET password_hash = NULL, token_version = token_version + 1 WHERE id = $1 RETURNING id, full_name, email', [id]);
+diff --git a/server/src/routes/requests.js b/server/src/routes/requests.js
+index b5fdf7d..d8115bf 100644
+--- a/server/src/routes/requests.js
++++ b/server/src/routes/requests.js
+@@ -18,6 +18,9 @@ import {
+ 
+ const router = Router();
+ 
++// BUG-003: разделение обязанностей — собственную заявку снабженец не ведёт (администратор — исключение)
++const SELF_MSG = 'Собственную заявку не может вести её автор — её обработает другой сотрудник снабжения';
++
+ const CLOSED_SQL = CLOSED.map((s) => `'${s}'`).join(', ');
+ const OVERDUE_SQL = `COALESCE(r.due_date < CURRENT_DATE AND r.status NOT IN (${CLOSED_SQL}), false)`;
+ 
+@@ -41,7 +44,7 @@ const FROM_COUNT = `FROM requests r JOIN users u ON u.id = r.author_id JOIN cate
+ 
+ const parseId = (v, msg = 'Заявка не найдена') => {
+   const id = Number(v);
+-  if (!Number.isInteger(id) || id < 1) throw notFound(msg);
++  if (!Number.isInteger(id) || id < 1 || id > 2147483647) throw notFound(msg);
+   return id;
+ };
+ const likeEscape = (s) => s.replace(/[\\%_]/g, (m) => `\\${m}`);
+@@ -142,6 +145,16 @@ const csvCell = (v) => {
+ 
+ router.get('/export.csv', requireRole('buyer', 'admin'), async (req, res) => {
+   const f = parseList(req.query);
++  try {
++    await streamCsv(req, res, f);
++  } catch (e) {
++    // R2: заголовки уже отправлены — обрываем соединение, чтобы файл не выглядел полным
++    if (res.headersSent) { req.log?.error({ err: e }, 'csv export failed'); res.destroy(); return; }
++    throw e;
++  }
++});
++
++async function streamCsv(req, res, f) {
+   res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="zayavki-${todayStr()}.csv"` });
+   const line = (cells) => `${cells.map(csvCell).join(';')}\r\n`;
+   res.write('\ufeff' + line(['№', 'Статус', 'Срочность', 'Автор', 'Подразделение', 'Категория', 'Создана', 'Нужно к', 'Сумма', 'Ответственный', 'Позиции', 'Обоснование', 'Последний комментарий']));
+@@ -158,12 +171,13 @@ router.get('/export.csv', requireRole('buyer', 'admin'), async (req, res) => {
+         r.items.map((i) => `${i.name} — ${i.quantity} ${i.unit}`).join('; '), r.justification, r.last_comment ?? '',
+       ]);
+     }
+-    if (chunk && !res.write(chunk) && !res.destroyed) await once(res, 'drain');
++    // R1: если клиент отключился, ждём не только 'drain', но и 'close' — иначе обработчик зависнет
++    if (chunk && !res.write(chunk) && !res.destroyed) await Promise.race([once(res, 'drain'), once(res, 'close')]);
+     if (res.destroyed || rows.length < BATCH) break;
+     last = rows.at(-1).id;
+   }
+   res.end();
+-});
++}
+ 
+ // ---------- создание (любая роль) ----------
+ router.post('/', async (req, res) => {
+@@ -248,10 +262,11 @@ router.post('/:id/assign', requireRole('buyer', 'admin'), async (req, res) => {
+   let assigneeName = null;
+   await tx(async (c) => {
+     const { rows } = await c.query(
+-      `SELECT r.status, r.assignee_id, a.full_name AS assignee_name FROM requests r LEFT JOIN users a ON a.id = r.assignee_id WHERE r.id = $1 FOR UPDATE OF r`, [id]);
++      `SELECT r.status, r.assignee_id, r.author_id, a.full_name AS assignee_name FROM requests r LEFT JOIN users a ON a.id = r.assignee_id WHERE r.id = $1 FOR UPDATE OF r`, [id]);
+     const cur = rows[0];
+     if (!cur) throw notFound('Заявка не найдена');
+     if (isClosed(cur.status)) throw conflict('Заявка закрыта');
++    if (cur.author_id === req.user.id && !isAdmin) throw forbidden(SELF_MSG);
+     if (!isAdmin && cur.assignee_id && cur.assignee_id !== req.user.id) throw forbidden(`Заявку ведёт ${cur.assignee_name}`);
+     if (target !== null) {
+       const t = (await c.query(`SELECT full_name FROM users WHERE id = $1 AND is_active AND role IN ('buyer', 'admin')`, [target])).rows[0];
+@@ -280,6 +295,7 @@ router.patch('/:id/status', requireRole('buyer', 'admin'), async (req, res) => {
+     if (!cur) throw notFound('Заявка не найдена');
+     authorId = cur.author_id;
+     if (isClosed(cur.status)) throw conflict('Заявка закрыта — менять статус нельзя');
++    if (cur.author_id === req.user.id && req.user.role !== 'admin') throw forbidden(SELF_MSG);
+     if (req.user.role !== 'admin' && cur.assignee_id && cur.assignee_id !== req.user.id) throw forbidden(`Заявку ведёт ${cur.assignee_name}`);
+     if (!canMove(cur.status, data.status)) throw conflict(`Переход «${STATUS_RU[cur.status]} → ${STATUS_RU[data.status]}» недопустим`);
+     const autoAssign = cur.status === 'new' && data.status === 'review' && !cur.assignee_id;
+@@ -310,8 +326,13 @@ router.post('/:id/comments', async (req, res) => {
+   const { body } = commentSchema.parse(req.body);
+   const r = await visible({ query }, id, req.user);
+   await addComment({ query }, id, req.user.id, 'comment', body);
+-  const to = r.author_id === req.user.id ? r.assignee_id : r.author_id;
+-  if (to && to !== req.user.id) notifyUsers([to], `Новый комментарий к заявке №${id}`, `${req.user.full_name}: ${body}\n${link(id)}`);
++  // BUG-025: автор пишет ответственному, а без ответственного — всем снабженцам; снабжение пишет автору и ответственному
++  let to;
++  if (r.author_id === req.user.id) {
++    to = r.assignee_id ? [r.assignee_id] : (await query(`SELECT id FROM users WHERE role = 'buyer' AND is_active`)).rows.map((u) => u.id);
++  } else to = [r.author_id, r.assignee_id];
++  to = to.filter((u) => u && u !== req.user.id);
++  if (to.length) notifyUsers(to, `Новый комментарий к заявке №${id}`, `${req.user.full_name}: ${body}\n${link(id)}`);
+   res.status(201).json({ comments: (await loadOne({ query }, id, req.user)).comments });
+ });
+ 
+@@ -319,7 +340,7 @@ router.post('/:id/comments', async (req, res) => {
+ // Доступ проверяется ДО чтения тела, чтобы посторонние не заставляли сервер принимать 10 МБ.
+ const guardUpload = async (req, res, next) => {
+   const r = await visible({ query }, parseId(req.params.id), req.user);
+-  if (req.user.role === 'employee' && isClosed(r.status)) throw conflict('Заявка закрыта — файлы добавлять нельзя');
++  if (isClosed(r.status)) throw conflict('Заявка закрыта — файлы добавлять нельзя');
+   next();
+ };
+ const fileBody = raw({ type: () => true, limit: MAX_FILE_BYTES });
+@@ -343,7 +364,7 @@ router.post('/:id/files', guardUpload, fileBody, async (req, res) => {
+     await tx(async (c) => {
+       const { rows } = await c.query('SELECT status FROM requests WHERE id = $1 FOR UPDATE', [id]);
+       if (!rows[0]) throw notFound('Заявка не найдена');
+-      if (req.user.role === 'employee' && isClosed(rows[0].status)) throw conflict('Заявка закрыта — файлы добавлять нельзя');
++      if (isClosed(rows[0].status)) throw conflict('Заявка закрыта — файлы добавлять нельзя');
+       const n = (await c.query('SELECT count(*)::int AS n FROM request_files WHERE request_id = $1', [id])).rows[0].n;
+       if (n >= MAX_FILES_PER_REQUEST) throw conflict(`К заявке можно прикрепить не более ${MAX_FILES_PER_REQUEST} файлов`);
+       await c.query(
+diff --git a/server/src/schemas.js b/server/src/schemas.js
+index b6be26e..f9c2eb6 100644
+--- a/server/src/schemas.js
++++ b/server/src/schemas.js
+@@ -1,10 +1,36 @@
+ import { z } from 'zod';
+ import { isRealDate } from './datecheck.js';
+ 
++// BUG-013: русские сообщения по умолчанию (свои сообщения правил имеют приоритет)
++const FIELD_RU = {
++  category_id: 'Категория', department_id: 'Подразделение', assignee_id: 'Ответственный', quantity: 'Количество',
++  budget: 'Сумма', justification: 'Обоснование', items: 'Позиции', name: 'Название', unit: 'Единица', due_date: 'Дата «нужно к»',
++  full_name: 'Имя', email: 'Email', password: 'Пароль', body: 'Комментарий', status: 'Статус', comment: 'Комментарий',
++  page: 'Страница', limit: 'Размер страницы', category: 'Категория', department: 'Подразделение', assignee: 'Ответственный',
++  from: 'Дата «с»', to: 'Дата «по»', role: 'Роль', token: 'Токен', is_urgent: 'Срочность',
++};
++const fieldLabel = (path) => FIELD_RU[[...path].reverse().find((p) => typeof p === 'string')];
++z.config({
++  customError: (iss) => {
++    const f = fieldLabel(iss.path ?? []);
++    const pre = f ? `${f}: ` : '';
++    switch (iss.code) {
++      case 'invalid_type': return `${pre}${iss.input === undefined ? 'обязательное поле' : 'неверный тип значения'}`;
++      case 'too_small': return `${pre}${iss.origin === 'string' ? 'слишком короткое значение' : iss.origin === 'array' ? 'слишком мало элементов' : 'значение слишком мало'}`;
++      case 'too_big': return `${pre}${iss.origin === 'string' ? 'слишком длинное значение' : iss.origin === 'array' ? 'слишком много элементов' : 'значение слишком велико'}`;
++      case 'invalid_value': case 'invalid_union': case 'not_multiple_of': return `${pre}недопустимое значение`;
++      default: return `${pre}некорректное значение`;
++    }
++  },
++});
++
++const PG_INT_MAX = 2147483647;
+ const text = (max) => z.string().trim().max(max);
+ const emailField = z.string().trim().toLowerCase().email('Некорректный email').max(200);
+-const password = z.string().min(8, 'Пароль — минимум 8 символов').max(100);
+-const id = z.number().int().positive();
++// BUG-027: bcrypt учитывает только первые 72 байта, поэтому ограничиваем длину в байтах
++const password = z.string().min(8, 'Пароль — минимум 8 символов').max(100)
++  .refine((p) => Buffer.byteLength(p, 'utf8') <= 72, 'Пароль слишком длинный: максимум 72 байта (около 36 русских или 72 латинских символов)');
++const id = z.number().int().positive().max(PG_INT_MAX);
+ 
+ // F1: дата должна существовать (2026-02-31 — нет)
+ const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата в формате ГГГГ-ММ-ДД').refine(isRealDate, 'Такой даты нет');
+@@ -37,14 +63,14 @@ export const dictPatchSchema = z
+ 
+ export const itemSchema = z.object({
+   name: text(120).min(1, 'Название позиции обязательно'),
+-  quantity: z.number({ invalid_type_error: 'Количество — число' }).int('Количество — целое число').positive('Количество должно быть больше 0'),
++  quantity: z.number({ error: 'Количество — число' }).int('Количество — целое число').positive('Количество должно быть больше 0').max(1_000_000, 'Количество не может быть больше 1 000 000'),
+   unit: text(12).default('шт.').transform((u) => u || 'шт.'),
+ });
+ export const requestSchema = z.object({
+   category_id: id,
+   is_urgent: z.boolean().default(false),
+   due_date: date.nullable().optional(),
+-  budget: z.number().min(0, 'Сумма не может быть отрицательной').max(1e12).nullable().optional(),
++  budget: z.number({ error: 'Сумма — число' }).min(0, 'Сумма не может быть отрицательной').max(999_999_999_999.99, 'Сумма слишком большая').multipleOf(0.01, 'Сумма — не более двух знаков после запятой').nullable().optional(),
+   justification: text(1000).min(1, 'Обоснование обязательно'),
+   items: z.array(itemSchema).min(1, 'Добавьте хотя бы одну позицию').max(50),
+ });
+@@ -61,7 +87,7 @@ export const assignSchema = z.object({ assignee_id: id.nullable().optional() });
+ 
+ export const cleanQuery = (q) => Object.fromEntries(Object.entries(q ?? {}).filter(([, v]) => v !== '' && v != null));
+ const flag = z.enum(['1', 'true']).optional().transform((v) => v !== undefined);
+-const idParam = z.coerce.number().int().positive();
++const idParam = z.coerce.number().int().positive().max(PG_INT_MAX);
+ 
+ export const listQuerySchema = z.object({
+   status: z.enum(['new', 'review', 'buying', 'done', 'rejected', 'cancelled']).optional(),
+diff --git a/server/test/api.test.js b/server/test/api.test.js
+index ae2c1b5..6ff18ef 100644
+--- a/server/test/api.test.js
++++ b/server/test/api.test.js
+@@ -490,7 +490,7 @@ describe('API', { skip }, () => {
+       assert.equal(await q('overdue=1'), await cnt(`SELECT count(*)::int n FROM generate_series(1,1250) g WHERE g % 7 = 0 AND g % 11 <> 0`));
+       assert.ok(await q(`from=${todayStr()}&to=${todayStr()}`) > 0);
+       assert.equal(await q(`from=${addDays(todayStr(), 1)}`), 0);
+-      await pool.query(`UPDATE requests SET justification = 'уникальнаяфраза' WHERE id = 1000`);
++      await pool.query(`UPDATE requests SET justification = 'уникальнаяфраза' WHERE id = (SELECT min(id) FROM requests)`);
+       assert.equal(await q('q=' + encodeURIComponent('уникальнаяфраза')), 1);
+       assert.equal(await q('q=1000'), 1);
+       assert.equal(await q('q=' + encodeURIComponent('%')), 0); // спецсимволы LIKE экранированы
+@@ -512,9 +512,15 @@ describe('API', { skip }, () => {
+       assert.equal((await api('GET', '/api/stats', { token: tokens.emp })).status, 403);
+     });
+     it('F6: список из 20 заявок быстрее 300 мс на ~1 250 строках', async () => {
+-      const t = Date.now();
+-      await api('GET', '/api/requests?limit=20', { token: tokens.buyer });
+-      assert.ok(Date.now() - t < 300, `заняло ${Date.now() - t} мс`);
++      // BUG-022: медиана 5 замеров вместо одного — устойчиво к шуму на общем CI-раннере
++      const times = [];
++      for (let i = 0; i < 5; i++) {
++        const t = Date.now();
++        await api('GET', '/api/requests?limit=20', { token: tokens.buyer });
++        times.push(Date.now() - t);
++      }
++      const median = times.sort((a, b) => a - b)[2];
++      assert.ok(median < 300, `медиана ${median} мс (${times.join(', ')})`);
+     });
+   });
+ 
+@@ -540,6 +546,116 @@ describe('API', { skip }, () => {
+     });
+   });
+ 
++  describe('исправления аудита (BUG-003…BUG-029)', () => {
++    const hasCyr = (t) => /[а-яё]/i.test(t);
++
++    it('BUG-003: снабженец не ведёт собственную заявку; другой снабженец и админ — могут', async () => {
++      const id = await newReq('buyer');
++      assert.equal((await api('PATCH', `/api/requests/${id}/status`, { token: tokens.buyer, body: { status: 'review' } })).status, 403);
++      assert.equal((await api('POST', `/api/requests/${id}/assign`, { token: tokens.buyer })).status, 403);
++      assert.equal((await api('PATCH', `/api/requests/${id}/status`, { token: tokens.buyer2, body: { status: 'review' } })).status, 200);
++      const own = await newReq('admin');
++      assert.equal((await api('PATCH', `/api/requests/${own}/status`, { token: tokens.admin, body: { status: 'review' } })).status, 200);
++    });
++
++    it('BUG-009: значения вне диапазона → 400/404, а не 500; бюджет не округляется молча', async () => {
++      const post = (extra) => api('POST', '/api/requests', { token: tokens.emp, body: goodReq(extra) });
++      assert.equal((await post({ budget: 1e12 })).status, 400);
++      assert.equal((await post({ budget: 0.005 })).status, 400);
++      assert.equal((await post({ category_id: 3e9 })).status, 400);
++      assert.equal((await post({ items: [{ name: 'x', quantity: 3e9 }] })).status, 400);
++      assert.equal((await post({ budget: 0 })).status, 201);
++      assert.equal((await api('GET', '/api/requests/99999999999', { token: tokens.emp })).status, 404);
++      assert.equal((await api('GET', '/api/requests?category=99999999999', { token: tokens.emp })).status, 400);
++    });
++
++    it('BUG-010: снабжение не прикрепляет файлы к закрытой заявке', async () => {
++      const id = await newReq('emp');
++      assert.equal((await api('PATCH', `/api/requests/${id}/status`, { token: tokens.buyer, body: { status: 'rejected', comment: 'нет' } })).status, 200);
++      assert.equal((await upload(id, 'buyer', 'a.pdf', PDF)).status, 409);
++    });
++
++    it('BUG-011: админ не может сбросить пароль самому себе', async () => {
++      assert.equal((await api('POST', `/api/users/${ids.admin}/reset-password`, { token: tokens.admin })).status, 409);
++      assert.equal((await api('GET', '/api/auth/me', { token: tokens.admin })).status, 200);
++    });
++
++    it('BUG-012: заблокированный пользователь не принимает приглашение, пароль не сохраняется', async () => {
++      const c = await api('POST', '/api/users', { token: tokens.admin, body: { full_name: 'Блок Блоков', email: 'blocked-inv@corp.kz' } });
++      const uid = c.json.user.id;
++      assert.equal((await api('PATCH', `/api/users/${uid}`, { token: tokens.admin, body: { is_active: false } })).status, 200);
++      const token = c.json.invite_url.split('/invite/')[1];
++      assert.equal((await api('POST', '/api/auth/accept-invite', { body: { token, password: 'newpassword1' } })).status, 404);
++      assert.equal((await pool.query('SELECT password_hash FROM users WHERE id = $1', [uid])).rows[0].password_hash, null);
++    });
++
++    it('BUG-013: сообщения валидации на русском', async () => {
++      const r = await api('POST', '/api/requests', { token: tokens.emp, body: { category_id: 0, items: [{ quantity: 1 }] } });
++      assert.equal(r.status, 400);
++      assert.ok(r.json.details.length >= 2);
++      for (const d of r.json.details) assert.ok(hasCyr(d.message), d.message);
++      const g = await api('GET', '/api/requests?page=abc', { token: tokens.emp });
++      assert.equal(g.status, 400);
++      assert.ok(hasCyr(g.json.error), g.json.error);
++    });
++
++    it('BUG-019: /api/health проверяет базу; HEAD страницы SPA не даёт 404', async () => {
++      assert.equal((await api('GET', '/api/health')).status, 200);
++      const res = await fetch(`${base}/login`, { method: 'HEAD' });
++      assert.notEqual(res.status, 404);
++    });
++
++    it('BUG-025: комментарий автора к заявке без ответственного уходит всем снабженцам', async () => {
++      const id = await newReq('emp');
++      outbox.length = 0;
++      assert.equal((await api('POST', `/api/requests/${id}/comments`, { token: tokens.emp, body: { body: 'Есть вопрос' } })).status, 201);
++      assert.ok(await waitMail((m) => m.to === 'buyer@corp.kz'));
++      assert.ok(await waitMail((m) => m.to === 'buyer2@corp.kz'));
++      assert.ok(!outbox.some((m) => m.to === 'emp@corp.kz'));
++    });
++
++    it('BUG-025: комментарий снабжения уходит автору и ответственному (кроме себя)', async () => {
++      const id = await newReq('emp');
++      await api('POST', `/api/requests/${id}/assign`, { token: tokens.buyer });
++      outbox.length = 0;
++      await api('POST', `/api/requests/${id}/comments`, { token: tokens.admin, body: { body: 'Уточняю' } });
++      assert.ok(await waitMail((m) => m.to === 'emp@corp.kz'));
++      assert.ok(await waitMail((m) => m.to === 'buyer@corp.kz'));
++      assert.ok(!outbox.some((m) => m.to === 'admin@corp.kz'));
++    });
++
++    it('BUG-027: пароль длиннее 72 байт отклоняется с понятным сообщением', async () => {
++      const change = (new_password) => api('POST', '/api/auth/change-password', { token: tokens.emp2, body: { current_password: 'password1', new_password } });
++      const r = await change('я'.repeat(40));
++      assert.equal(r.status, 400);
++      assert.ok(hasCyr(r.json.error));
++      const ok = await change('я'.repeat(36));
++      assert.equal(ok.status, 200);
++      tokens.emp2 = ok.json.token;
++      // вернуть исходный пароль для остальных тестов
++      const back = await api('POST', '/api/auth/change-password', { token: tokens.emp2, body: { current_password: 'я'.repeat(36), new_password: 'password1' } });
++      tokens.emp2 = back.json.token;
++    });
++
++    it('BUG-029: лимит неудачных попыток на один аккаунт с разных IP', async () => {
++      const { config } = await import('../src/config.js');
++      const { createApp } = await import('../src/app.js');
++      const prev = config.trustProxy;
++      config.trustProxy = 1;
++      const srv = createApp().listen(0);
++      config.trustProxy = prev;
++      try {
++        const b = `http://127.0.0.1:${srv.address().port}`;
++        const codes = [];
++        for (let i = 0; i < 31; i++) {
++          codes.push((await call(b, 'POST', '/api/auth/login', { body: { email: 'victim@corp.kz', password: 'wrongpass1' }, headers: { 'X-Forwarded-For': `192.0.2.${i}` } })).status);
++        }
++        assert.deepEqual(codes.slice(0, 30), Array(30).fill(401));
++        assert.equal(codes[30], 429);
++      } finally { srv.close(); }
++    });
++  });
++
+   describe('прочее', () => {
+     it('неизвестный маршрут API → 404 JSON; без токена → 401', async () => {
+       assert.equal((await api('GET', '/api/nope')).status, 404);

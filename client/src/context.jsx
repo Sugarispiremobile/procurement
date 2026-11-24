@@ -18,14 +18,20 @@ export const useAuth = () => useContext(AuthCtx);
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(Boolean(getToken()));
+  const [bootError, setBootError] = useState(null);
+  const [attempt, setAttempt] = useState(0);
 
   const logout = useCallback(() => { setToken(null); setUser(null); }, []);
 
   useEffect(() => {
     setUnauthorizedHandler(logout);
     if (!getToken()) return;
-    api.get('/auth/me').then((d) => setUser(d.user)).catch(logout).finally(() => setLoading(false));
-  }, [logout]);
+    // выходим только при 401; сбой сети или 5xx (например, перезапуск сервера) сессию не стирает
+    setBootError(null); setLoading(true);
+    api.get('/auth/me').then((d) => setUser(d.user)).catch((e) => {
+      if (e?.status === 401) logout(); else setBootError(e?.full || 'Нет связи с сервером');
+    }).finally(() => setLoading(false));
+  }, [logout, attempt]);
 
   const value = useMemo(() => ({
     user, loading, logout,
@@ -42,6 +48,15 @@ export function AuthProvider({ children }) {
     setUser,
   }), [user, loading, logout]);
 
+  if (bootError) {
+    return (
+      <div className="panel" role="alert">
+        <h2>Нет связи с сервером</h2>
+        <p className="meta">{bootError}. Ваша сессия сохранена — попробуйте ещё раз.</p>
+        <button className="btn" type="button" onClick={() => setAttempt((a) => a + 1)}>Повторить</button>
+      </div>
+    );
+  }
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
 }
 

@@ -16,6 +16,15 @@ try {
 const app = createApp();
 const server = app.listen(config.port, () => logger.info(`Сервер запущен: http://localhost:${config.port}`));
 
-const shutdown = async () => { server.close(); await pool.end(); process.exit(0); };
+// BUG-020: сначала дожидаемся завершения запросов в полёте (не дольше 10 с), потом закрываем пул
+let stopping = false;
+const shutdown = async () => {
+  if (stopping) return;
+  stopping = true;
+  setTimeout(() => process.exit(1), 10_000).unref();
+  await new Promise((resolve) => { server.close(resolve); server.closeIdleConnections?.(); });
+  await pool.end();
+  process.exit(0);
+};
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);

@@ -490,7 +490,7 @@ describe('API', { skip }, () => {
       assert.equal(await q('overdue=1'), await cnt(`SELECT count(*)::int n FROM generate_series(1,1250) g WHERE g % 7 = 0 AND g % 11 <> 0`));
       assert.ok(await q(`from=${todayStr()}&to=${todayStr()}`) > 0);
       assert.equal(await q(`from=${addDays(todayStr(), 1)}`), 0);
-      await pool.query(`UPDATE requests SET justification = 'уникальнаяфраза' WHERE id = 1000`);
+      await pool.query(`UPDATE requests SET justification = 'уникальнаяфраза' WHERE id = (SELECT min(id) FROM requests)`);
       assert.equal(await q('q=' + encodeURIComponent('уникальнаяфраза')), 1);
       assert.equal(await q('q=1000'), 1);
       assert.equal(await q('q=' + encodeURIComponent('%')), 0); // спецсимволы LIKE экранированы
@@ -512,9 +512,15 @@ describe('API', { skip }, () => {
       assert.equal((await api('GET', '/api/stats', { token: tokens.emp })).status, 403);
     });
     it('F6: список из 20 заявок быстрее 300 мс на ~1 250 строках', async () => {
-      const t = Date.now();
-      await api('GET', '/api/requests?limit=20', { token: tokens.buyer });
-      assert.ok(Date.now() - t < 300, `заняло ${Date.now() - t} мс`);
+      // BUG-022: медиана 5 замеров вместо одного — устойчиво к шуму на общем CI-раннере
+      const times = [];
+      for (let i = 0; i < 5; i++) {
+        const t = Date.now();
+        await api('GET', '/api/requests?limit=20', { token: tokens.buyer });
+        times.push(Date.now() - t);
+      }
+      const median = times.sort((a, b) => a - b)[2];
+      assert.ok(median < 300, `медиана ${median} мс (${times.join(', ')})`);
     });
   });
 
@@ -537,6 +543,116 @@ describe('API', { skip }, () => {
       const codes = [];
       for (let i = 0; i < 6; i++) codes.push((await call(base2, 'POST', '/api/auth/register', { body: { full_name: 'Тест Тестов', email: `r${i}@corp.kz`, password: 'password1' } })).status);
       assert.deepEqual(codes, [201, 201, 201, 201, 201, 429]);
+    });
+  });
+
+  describe('исправления аудита (BUG-003…BUG-029)', () => {
+    const hasCyr = (t) => /[а-яё]/i.test(t);
+
+    it('BUG-003: снабженец не ведёт собственную заявку; другой снабженец и админ — могут', async () => {
+      const id = await newReq('buyer');
+      assert.equal((await api('PATCH', `/api/requests/${id}/status`, { token: tokens.buyer, body: { status: 'review' } })).status, 403);
+      assert.equal((await api('POST', `/api/requests/${id}/assign`, { token: tokens.buyer })).status, 403);
+      assert.equal((await api('PATCH', `/api/requests/${id}/status`, { token: tokens.buyer2, body: { status: 'review' } })).status, 200);
+      const own = await newReq('admin');
+      assert.equal((await api('PATCH', `/api/requests/${own}/status`, { token: tokens.admin, body: { status: 'review' } })).status, 200);
+    });
+
+    it('BUG-009: значения вне диапазона → 400/404, а не 500; бюджет не округляется молча', async () => {
+      const post = (extra) => api('POST', '/api/requests', { token: tokens.emp, body: goodReq(extra) });
+      assert.equal((await post({ budget: 1e12 })).status, 400);
+      assert.equal((await post({ budget: 0.005 })).status, 400);
+      assert.equal((await post({ category_id: 3e9 })).status, 400);
+      assert.equal((await post({ items: [{ name: 'x', quantity: 3e9 }] })).status, 400);
+      assert.equal((await post({ budget: 0 })).status, 201);
+      assert.equal((await api('GET', '/api/requests/99999999999', { token: tokens.emp })).status, 404);
+      assert.equal((await api('GET', '/api/requests?category=99999999999', { token: tokens.emp })).status, 400);
+    });
+
+    it('BUG-010: снабжение не прикрепляет файлы к закрытой заявке', async () => {
+      const id = await newReq('emp');
+      assert.equal((await api('PATCH', `/api/requests/${id}/status`, { token: tokens.buyer, body: { status: 'rejected', comment: 'нет' } })).status, 200);
+      assert.equal((await upload(id, 'buyer', 'a.pdf', PDF)).status, 409);
+    });
+
+    it('BUG-011: админ не может сбросить пароль самому себе', async () => {
+      assert.equal((await api('POST', `/api/users/${ids.admin}/reset-password`, { token: tokens.admin })).status, 409);
+      assert.equal((await api('GET', '/api/auth/me', { token: tokens.admin })).status, 200);
+    });
+
+    it('BUG-012: заблокированный пользователь не принимает приглашение, пароль не сохраняется', async () => {
+      const c = await api('POST', '/api/users', { token: tokens.admin, body: { full_name: 'Блок Блоков', email: 'blocked-inv@corp.kz' } });
+      const uid = c.json.user.id;
+      assert.equal((await api('PATCH', `/api/users/${uid}`, { token: tokens.admin, body: { is_active: false } })).status, 200);
+      const token = c.json.invite_url.split('/invite/')[1];
+      assert.equal((await api('POST', '/api/auth/accept-invite', { body: { token, password: 'newpassword1' } })).status, 404);
+      assert.equal((await pool.query('SELECT password_hash FROM users WHERE id = $1', [uid])).rows[0].password_hash, null);
+    });
+
+    it('BUG-013: сообщения валидации на русском', async () => {
+      const r = await api('POST', '/api/requests', { token: tokens.emp, body: { category_id: 0, items: [{ quantity: 1 }] } });
+      assert.equal(r.status, 400);
+      assert.ok(r.json.details.length >= 2);
+      for (const d of r.json.details) assert.ok(hasCyr(d.message), d.message);
+      const g = await api('GET', '/api/requests?page=abc', { token: tokens.emp });
+      assert.equal(g.status, 400);
+      assert.ok(hasCyr(g.json.error), g.json.error);
+    });
+
+    it('BUG-019: /api/health проверяет базу; HEAD страницы SPA не даёт 404', async () => {
+      assert.equal((await api('GET', '/api/health')).status, 200);
+      const res = await fetch(`${base}/login`, { method: 'HEAD' });
+      assert.notEqual(res.status, 404);
+    });
+
+    it('BUG-025: комментарий автора к заявке без ответственного уходит всем снабженцам', async () => {
+      const id = await newReq('emp');
+      outbox.length = 0;
+      assert.equal((await api('POST', `/api/requests/${id}/comments`, { token: tokens.emp, body: { body: 'Есть вопрос' } })).status, 201);
+      assert.ok(await waitMail((m) => m.to === 'buyer@corp.kz'));
+      assert.ok(await waitMail((m) => m.to === 'buyer2@corp.kz'));
+      assert.ok(!outbox.some((m) => m.to === 'emp@corp.kz'));
+    });
+
+    it('BUG-025: комментарий снабжения уходит автору и ответственному (кроме себя)', async () => {
+      const id = await newReq('emp');
+      await api('POST', `/api/requests/${id}/assign`, { token: tokens.buyer });
+      outbox.length = 0;
+      await api('POST', `/api/requests/${id}/comments`, { token: tokens.admin, body: { body: 'Уточняю' } });
+      assert.ok(await waitMail((m) => m.to === 'emp@corp.kz'));
+      assert.ok(await waitMail((m) => m.to === 'buyer@corp.kz'));
+      assert.ok(!outbox.some((m) => m.to === 'admin@corp.kz'));
+    });
+
+    it('BUG-027: пароль длиннее 72 байт отклоняется с понятным сообщением', async () => {
+      const change = (new_password) => api('POST', '/api/auth/change-password', { token: tokens.emp2, body: { current_password: 'password1', new_password } });
+      const r = await change('я'.repeat(40));
+      assert.equal(r.status, 400);
+      assert.ok(hasCyr(r.json.error));
+      const ok = await change('я'.repeat(36));
+      assert.equal(ok.status, 200);
+      tokens.emp2 = ok.json.token;
+      // вернуть исходный пароль для остальных тестов
+      const back = await api('POST', '/api/auth/change-password', { token: tokens.emp2, body: { current_password: 'я'.repeat(36), new_password: 'password1' } });
+      tokens.emp2 = back.json.token;
+    });
+
+    it('BUG-029: лимит неудачных попыток на один аккаунт с разных IP', async () => {
+      const { config } = await import('../src/config.js');
+      const { createApp } = await import('../src/app.js');
+      const prev = config.trustProxy;
+      config.trustProxy = 1;
+      const srv = createApp().listen(0);
+      config.trustProxy = prev;
+      try {
+        const b = `http://127.0.0.1:${srv.address().port}`;
+        const codes = [];
+        for (let i = 0; i < 31; i++) {
+          codes.push((await call(b, 'POST', '/api/auth/login', { body: { email: 'victim@corp.kz', password: 'wrongpass1' }, headers: { 'X-Forwarded-For': `192.0.2.${i}` } })).status);
+        }
+        assert.deepEqual(codes.slice(0, 30), Array(30).fill(401));
+        assert.equal(codes[30], 429);
+      } finally { srv.close(); }
     });
   });
 

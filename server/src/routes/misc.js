@@ -8,7 +8,7 @@ import { dictSchema, dictPatchSchema, createUserSchema, userPatchSchema, statsQu
 
 const parseId = (v, msg = 'Не найдено') => {
   const id = Number(v);
-  if (!Number.isInteger(id) || id < 1) throw notFound(msg);
+  if (!Number.isInteger(id) || id < 1 || id > 2147483647) throw notFound(msg);
   return id;
 };
 
@@ -90,6 +90,8 @@ usersRouter.patch('/:id', async (req, res) => {
       [id, d.role ?? null, d.is_active ?? null, d.full_name ?? null, 'department_id' in d, d.department_id ?? null]);
     const u = rows[0];
     if (!u) return false;
+    // BUG-012: блокировка гасит неиспользованные приглашения
+    if (!u.is_active) await c.query('UPDATE invites SET used_at = now() WHERE user_id = $1 AND used_at IS NULL', [id]);
     // Заблокированный или ставший employee не может вести заявки: снимаем с открытых
     if (!u.is_active || u.role === 'employee') {
       const freed = await c.query(
@@ -111,6 +113,7 @@ usersRouter.patch('/:id', async (req, res) => {
 // A5: сброс пароля — старый перестаёт работать, пользователь получает ссылку
 usersRouter.post('/:id/reset-password', async (req, res) => {
   const id = parseId(req.params.id, 'Пользователь не найден');
+  if (id === req.user.id) throw conflict('Нельзя сбросить пароль самому себе — используйте смену пароля в профиле');
   const out = await tx(async (c) => {
     const { rows } = await c.query(
       'UPDATE users SET password_hash = NULL, token_version = token_version + 1 WHERE id = $1 RETURNING id, full_name, email', [id]);

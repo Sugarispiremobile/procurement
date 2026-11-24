@@ -47,6 +47,10 @@ export function createLimiters() {
   return {
     loginIp: rateLimit({ ...base, windowMs: 15 * 60_000, limit: 50, skipSuccessfulRequests: true,
       keyGenerator: (req) => ipKeyGenerator(req.ip), handler: tooMany(loginMsg) }),
+    // BUG-029: лимит неудачных попыток на один аккаунт независимо от IP
+    loginEmail: rateLimit({ ...base, windowMs: 60 * 60_000, limit: 30, skipSuccessfulRequests: true,
+      skip: (req) => !req.body?.email,
+      keyGenerator: (req) => String(req.body.email).toLowerCase(), handler: tooMany(loginMsg) }),
     loginPair: rateLimit({ ...base, windowMs: 15 * 60_000, limit: 10, skipSuccessfulRequests: true,
       keyGenerator: (req) => `${ipKeyGenerator(req.ip)}|${String(req.body?.email ?? '').toLowerCase()}`, handler: tooMany(loginMsg) }),
     register: rateLimit({ ...base, windowMs: 60 * 60_000, limit: 5,

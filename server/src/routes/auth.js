@@ -44,7 +44,7 @@ export default function authRoutes(limiters) {
     res.status(201).json({ token: signToken(u), user: publicUser(u) });
   });
 
-  router.post('/login', limiters.loginIp, limiters.loginPair, async (req, res) => {
+  router.post('/login', limiters.loginIp, limiters.loginEmail, limiters.loginPair, async (req, res) => {
     const data = loginSchema.parse(req.body);
     const user = (await query(`${USER_SQL} WHERE u.email = $1`, [data.email])).rows[0];
     const ok = await bcrypt.compare(data.password, user?.password_hash ?? DUMMY_HASH);
@@ -68,7 +68,7 @@ export default function authRoutes(limiters) {
     const { rows } = await db.query(
       `SELECT i.token_hash, i.user_id, u.full_name, u.email
          FROM invites i JOIN users u ON u.id = i.user_id
-        WHERE i.token_hash = $1 AND i.used_at IS NULL AND i.expires_at > now() ${lock ? 'FOR UPDATE OF i' : ''}`,
+        WHERE i.token_hash = $1 AND i.used_at IS NULL AND i.expires_at > now() AND u.is_active ${lock ? 'FOR UPDATE OF i' : ''}`,
       [hashToken(token)],
     );
     if (!rows[0]) throw notFound('Ссылка недействительна или устарела. Попросите администратора выдать новую');

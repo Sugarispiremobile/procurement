@@ -10,4 +10,4 @@ docker compose -f docker-compose.prod.yml run --rm -v "$PWD/backups:/b" app sh -
 docker compose -f docker-compose.prod.yml start app
 ```
 
-Проверку восстановления делайте раз в квартал на тестовой машине.
+Автоматическая проверка восстановления (`deploy/verify-restore.sh`) выполняется 1-го числа каждого месяца и по `BACKUP_VERIFY=1`; раз в квартал всё равно проверяйте полное восстановление на тестовой машине.

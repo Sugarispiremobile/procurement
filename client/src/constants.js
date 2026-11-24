@@ -25,9 +25,11 @@ export const cfg = { currency: '₸', timeZone: 'Asia/Almaty', registrationOpen:
 /** «Сегодня» в часовом поясе приложения (как на сервере), а не в поясе браузера. */
 export const todayStr = () => new Intl.DateTimeFormat('en-CA', { timeZone: cfg.timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 export const fmtDate = (d) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString('ru-RU') : '—');
+// BUG-015: все даты и время показываем в часовом поясе приложения (как считает сервер), а не браузера и не UTC
 export const fmtDT = (t) =>
-  new Date(t).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-export const fmtMoney = (n) => (n ? `${Number(n).toLocaleString('ru-RU')} ${cfg.currency}` : '—');
+  new Date(t).toLocaleString('ru-RU', { timeZone: cfg.timeZone, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+export const fmtDay = (t) => new Date(t).toLocaleDateString('ru-RU', { timeZone: cfg.timeZone, day: '2-digit', month: '2-digit', year: 'numeric' });
+export const fmtMoney = (n) => (n != null && n !== '' ? `${Number(n).toLocaleString('ru-RU')} ${cfg.currency}` : '—');
 export const fmtSize = (b) => (b < 1024 ? `${b} Б` : b < 1048576 ? `${Math.round(b / 1024)} КБ` : `${(b / 1048576).toFixed(1)} МБ`);
 export const isOverdue = (r) => (typeof r.is_overdue === 'boolean' ? r.is_overdue : Boolean(r.due_date) && r.due_date < todayStr() && !CLOSED.includes(r.status));
 
