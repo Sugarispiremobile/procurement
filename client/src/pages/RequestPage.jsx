@@ -95,7 +95,7 @@ export default function RequestPage() {
           {isAdmin && !closed && (
             <select aria-label="Назначить ответственного" value={r.assignee_id ?? ''} disabled={busy} onChange={(e) => assign(e.target.value ? Number(e.target.value) : null)}>
               <option value="">— без ответственного —</option>
-              {buyers.map((b) => <option key={b.id} value={b.id}>{b.full_name}</option>)}
+              {buyers.filter((b) => b.id !== r.author_id || b.role === 'admin').map((b) => <option key={b.id} value={b.id}>{b.full_name}</option>)}
             </select>
           )}
         </div>

@@ -269,8 +269,9 @@ router.post('/:id/assign', requireRole('buyer', 'admin'), async (req, res) => {
     if (cur.author_id === req.user.id && !isAdmin) throw forbidden(SELF_MSG);
     if (!isAdmin && cur.assignee_id && cur.assignee_id !== req.user.id) throw forbidden(`Заявку ведёт ${cur.assignee_name}`);
     if (target !== null) {
-      const t = (await c.query(`SELECT full_name FROM users WHERE id = $1 AND is_active AND role IN ('buyer', 'admin')`, [target])).rows[0];
+      const t = (await c.query(`SELECT full_name, role FROM users WHERE id = $1 AND is_active AND role IN ('buyer', 'admin')`, [target])).rows[0];
       if (!t) throw badRequest('Ответственным можно назначить только сотрудника снабжения');
+      if (target === cur.author_id && t.role !== 'admin') throw forbidden(SELF_MSG);
       assigneeName = t.full_name;
     }
     if (cur.assignee_id === target) return;
@@ -400,10 +401,13 @@ router.get('/:id/files/:fileId', async (req, res) => {
 
 router.delete('/:id/files/:fileId', async (req, res) => {
   const f = await loadFile(req);
-  if (f.uploaded_by !== req.user.id) throw forbidden('Удалить файл может только его автор');
+  if (f.uploaded_by !== req.user.id && req.user.role !== 'admin') throw forbidden('Удалить файл может только его автор или администратор');
   const { rows } = await query('SELECT status FROM requests WHERE id = $1', [f.request_id]);
   if (isClosed(rows[0].status)) throw conflict('Заявка закрыта — файл удалить нельзя');
-  await query('DELETE FROM request_files WHERE id = $1', [f.id]);
+  await tx(async (c) => {
+    await c.query('DELETE FROM request_files WHERE id = $1', [f.id]);
+    await addEvent(c, f.request_id, 'file_deleted', null, null, req.user.id, { file_name: f.original_name, uploaded_by: f.uploaded_by });
+  });
   await fsp.rm(path.join(config.uploadDir, f.stored_name), { force: true });
   res.status(204).end();
 });
