@@ -78,7 +78,7 @@ erDiagram
 ```
 
 Особенности:
-- `users.assignee_id` в заявке: `ON DELETE SET NULL`; позиции, история, комментарии и файлы удаляются вместе с заявкой (`ON DELETE CASCADE`).
+- `requests.assignee_id`: `ON DELETE SET NULL`; позиции, история, комментарии и файлы удаляются вместе с заявкой (`ON DELETE CASCADE`).
 - Комментарии неизменяемы на уровне БД: триггер `trg_comment_immutable` запрещает UPDATE и DELETE (кроме каскада при удалении заявки).
 - В `invites` хранится только SHA-256 хэш токена, сам токен знает только получатель.
 
